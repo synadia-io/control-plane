@@ -3,13 +3,12 @@ version: '3.9'
 services:
   rna:
     container_name: helix-alpha-rna
-    image: helix-registry.nas-dev.synadia.io/rna:branch-main
+    image: helix-registry.nas-dev.synadia.io/helix-dev:build-9fce74d239f75bc228b57119a58014e044ea0554d9e6f8b85f1bc9ba30ca9b7a
     hostname: rna
     command: server start
     volumes:
       - ./nats/nsc/keys:/etc/nsc/keys
       - ./rna.cue:/app/rna.cue
-      - rna-data:/app/data
     ports:
       - 8080:8080
 

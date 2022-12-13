@@ -20,7 +20,8 @@ EOF
 RNA_CONFIG=$(cat <<EOF
 {
   env: "local"
-  prom_url: "http://prometheus:9090"
+  postgres_url: "postgres://helix:helix@localhost:5432/helix"
+  prometheus_url: "http://localhost:9090"
   logging: {
     components: {
       auth: {
@@ -34,17 +35,31 @@ RNA_CONFIG=$(cat <<EOF
 EOF
 )
 
+if [[ -d ${CONFIG_DIR} ]]; then 
+  echo "Config directory exists"
+  read -p "Would you like to delete and replace it? (y/N) "
+  if [[ ! ${REPLY} =~ ^[Yy] ]]; then
+    exit 1
+  else
+    rm -r ${CONFIG_DIR}
+  fi
+fi
+
+
 mkdir -p ${CONFIG_DIR}
 
 NATS_SYSTEMS="\n  nats_systems: ["
 for cluster in ${CLUSTERS[*]}; do
-  nsc ${NSC_FLAGS} add operator ${cluster} --generate-signing-key
+  nsc ${NSC_FLAGS} add operator ${cluster}
   nsc ${NSC_FLAGS} edit operator --service-url nats://${cluster}:4222
   nsc ${NSC_FLAGS} add account -n SYS
   nsc ${NSC_FLAGS} edit operator --system-account SYS
   nsc ${NSC_FLAGS} add user -a SYS -n sys
-  OPERATOR_KEY=$(nsc ${NSC_FLAGS} generate nkey --operator --store 2>&1 |grep '.nk$' |awk '{ print $4 }' |sed "s%^$(pwd)/nats/%%")
-  chmod +r ${CONFIG_DIR}/${OPERATOR_KEY}
+  OPERATOR_NKEY_OUT=$(nsc ${NSC_FLAGS} generate nkey --operator --store 2>&1) 
+  OPERATOR_KEY=$(echo "${OPERATOR_NKEY_OUT}" |head -1)
+  OPERATOR_KEY_PATH=$(echo "${OPERATOR_NKEY_OUT}" |grep '.nk$' |awk '{ print $4 }' |sed "s%^$(pwd)/nats/%%")
+  nsc ${NSC_FLAGS} edit operator --sk ${OPERATOR_KEY}
+  chmod +r ${CONFIG_DIR}/${OPERATOR_KEY_PATH}
   chmod +r ${CONFIG_DIR}/nsc/keys/creds/${cluster}/SYS/sys.creds
 
   mkdir -p ${CONFIG_DIR}/${cluster}
@@ -61,7 +76,7 @@ for cluster in ${CLUSTERS[*]}; do
       urls:                      "nats://${cluster}:4222"
       account_server_url:        "nats://${cluster}:4222"
       system_account_creds_file: "/etc/nsc/keys/creds/${cluster}/SYS/sys.creds"
-      operator_signing_key_file: "/etc/${OPERATOR_KEY}"
+      operator_signing_key_file: "/etc/${OPERATOR_KEY_PATH}"
     },
 EOF
 )

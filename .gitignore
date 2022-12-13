@@ -1,0 +1,4 @@
+# Ignore generated nats directory
+/nats
+# Ignore generated rna config
+rna.cue

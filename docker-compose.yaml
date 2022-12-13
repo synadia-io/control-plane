@@ -20,7 +20,7 @@ services:
   nats-bootstrap:
     container_name: nats-bootstrap
     image: natsio/nats-box:latest
-    command: /setup/bootstrap.sh -f
+    command: /setup/bootstrap.sh -s
     volumes:
       - ./:/setup
 

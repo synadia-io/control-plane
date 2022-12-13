@@ -35,7 +35,10 @@ RNA_CONFIG=$(cat <<EOF
 EOF
 )
 
-if [[ -d ${CONFIG_DIR} ]]; then
+if [[ -d ${CONFIG_DIR} ]] && [[ "${1}" == "-s" ]]; then
+  echo "Using existing config directory"
+  exit 0
+elif [[ -d ${CONFIG_DIR} ]]; then
   if [[ "${1}" != "-f" ]]; then
     echo "Config directory exists"
     read -p "Would you like to delete and replace it? (y/N) "

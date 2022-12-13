@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  rna:
+    container_name: helix-alpha-rna
+    image: helix-registry.nas-dev.synadia.io/rna:branch-main
+    hostname: rna
+    command: server start
+    volumes:
+      - ./nats/nsc/keys:/etc/nsc/keys
+      - ./rna.cue:/app/rna.cue
+      - rna-data:/app/data
+    ports:
+      - 8080:8080
+
+  nats-a:
+    container_name: helix-alpha-nats-a
+    image: nats:2.9.9-alpine
+    hostname: nats
+    volumes:
+      - ./nats/nats-a/nats-server.conf:/etc/nats/nats-server.conf
+      - nats-a:/data
+    ports:
+      - 14222:4222
+
+  nats-b:
+    container_name: helix-alpha-nats-b
+    image: nats:2.9.9-alpine
+    hostname: nats
+    volumes:
+      - ./nats/nats-b/nats-server.conf:/etc/nats/nats-server.conf
+      - nats-b:/data
+    ports:
+      - 14223:4222
+
+  prometheus:
+    container_name: helix-alpha-prom
+    image: prom/prometheus
+    hostname: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - 9090:9090
+volumes:
+  nats-a: {}
+  nats-b: {}
+  rna-data: {}

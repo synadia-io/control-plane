@@ -34,8 +34,6 @@ RNA_CONFIG=$(cat <<EOF
 EOF
 )
 
-declare -A OPERATOR_KEYS
-
 mkdir -p ${CONFIG_DIR}
 
 NATS_SYSTEMS="\n  nats_systems: ["
@@ -48,7 +46,6 @@ for cluster in ${CLUSTERS[*]}; do
   OPERATOR_KEY=$(nsc ${NSC_FLAGS} generate nkey --operator --store 2>&1 |grep '.nk$' |awk '{ print $4 }' |sed "s%^$(pwd)/nats/%%")
   chmod +r ${CONFIG_DIR}/${OPERATOR_KEY}
   chmod +r ${CONFIG_DIR}/nsc/keys/creds/${cluster}/SYS/sys.creds
-  OPERATOR_KEYS[${cluster}]="/etc/${OPERATOR_KEY}"
 
   mkdir -p ${CONFIG_DIR}/${cluster}
   NATS_CFG=${CONFIG_DIR}/${cluster}/nats-server.conf

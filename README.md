@@ -54,6 +54,5 @@ docker compose down -v
 #### To destroy the existing environment and spawn a completely fresh one
 ```
 docker compose down -v
-rm -rf nats rna.cue
 docker compose up -d
 ```

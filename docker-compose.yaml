@@ -5,10 +5,9 @@ services:
     container_name: helix-alpha
     image: registry.helix-dev.synadia.io/helix:tag-rc
     hostname: helix
-    command: server start
+    command: ["-c", "/conf/helix/rna.cue", "server", "start"]
     volumes:
-      - ./nats/nsc/keys:/etc/nsc/keys
-      - ./rna.cue:/app/rna.cue
+      - conf:/conf
       - helix-data:/app/data
     ports:
       - 8080:8080
@@ -20,16 +19,19 @@ services:
   nats-bootstrap:
     container_name: nats-bootstrap
     image: natsio/nats-box:latest
-    command: /setup/bootstrap.sh -s
+    entrypoint: ["sh"]
+    command: ["/setup/bootstrap.sh", "-s"]
     volumes:
-      - ./:/setup
+      - conf:/conf
+      - ./bootstrap.sh:/setup/bootstrap.sh:ro
 
   nats-a:
     container_name: helix-alpha-nats-a
     image: nats:2.9.9-alpine
     hostname: nats
+    command: ["nats-server", "--config", "/conf/helix/nats-a/nats-server.conf"]
     volumes:
-      - ./nats/nats-a/nats-server.conf:/etc/nats/nats-server.conf
+      - conf:/conf
       - nats-a:/data
     ports:
       - 4222:4222
@@ -41,8 +43,9 @@ services:
     container_name: helix-alpha-nats-b
     image: nats:2.9.9-alpine
     hostname: nats
+    command: ["nats-server", "--config", "/conf/helix/nats-b/nats-server.conf"]
     volumes:
-      - ./nats/nats-b/nats-server.conf:/etc/nats/nats-server.conf
+      - conf:/conf
       - nats-b:/data
     ports:
       - 4223:4222
@@ -54,8 +57,9 @@ services:
     container_name: helix-alpha-nats-c
     image: nats:2.9.9-alpine
     hostname: nats
+    command: ["nats-server", "--config", "/conf/helix/nats-c/nats-server.conf"]
     volumes:
-      - ./nats/nats-c/nats-server.conf:/etc/nats/nats-server.conf
+      - conf:/conf
       - nats-c:/data
     ports:
       - 4224:4222
@@ -64,6 +68,7 @@ services:
         condition: service_completed_successfully
 
 volumes:
+  conf: {}
   nats-a: {}
   nats-b: {}
   nats-c: {}

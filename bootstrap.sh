@@ -27,9 +27,6 @@ RNA_CONFIG=$(cat <<EOF
       auth: {
         level: "warn"
       }
-      api: {
-        level: "warn"
-      }
     }
   }
 EOF

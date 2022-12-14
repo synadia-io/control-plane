@@ -1,9 +1,9 @@
 #!/bin/sh
 
-cd "$(dirname "${0}")"
+cd "/conf"
 
 CLUSTERS="nats-a nats-b nats-c"
-CONFIG_DIR="$(pwd)/nats"
+CONFIG_DIR="/conf/helix"
 NSC_DIR=${CONFIG_DIR}/nsc
 NSC_FLAGS="--config-dir=${NSC_DIR} --data-dir=${NSC_DIR}/store --keystore-dir=${NSC_DIR}/keys"
 NATS_SERVER_CONFIG=$(cat <<EOF
@@ -64,10 +64,8 @@ for cluster in ${CLUSTERS}; do
   # Create and associate operator signing key
   OPERATOR_NKEY_OUT=$(nsc ${NSC_FLAGS} generate nkey --operator --store 2>&1)
   OPERATOR_KEY=$(echo "${OPERATOR_NKEY_OUT}" |head -1)
-  OPERATOR_KEY_PATH=$(echo "${OPERATOR_NKEY_OUT}" |grep '.nk$' |awk '{ print $4 }' |sed "s%^$(pwd)/nats/%%")
+  OPERATOR_KEY_PATH=$(echo "${OPERATOR_NKEY_OUT}" |grep '.nk$' |awk '{ print $4 }')
   nsc ${NSC_FLAGS} edit operator --sk ${OPERATOR_KEY}
-  chmod +r ${CONFIG_DIR}/${OPERATOR_KEY_PATH}
-  chmod +r ${CONFIG_DIR}/nsc/keys/creds/${cluster}/SYS/sys.creds
 
   # Create nats server config
   mkdir -p ${CONFIG_DIR}/${cluster}
@@ -87,8 +85,8 @@ for cluster in ${CLUSTERS}; do
       name:                      "${cluster}"
       urls:                      "nats://${cluster}:4222"
       account_server_url:        "nats://${cluster}:4222"
-      system_account_creds_file: "/etc/nsc/keys/creds/${cluster}/SYS/sys.creds"
-      operator_signing_key_file: "/etc/${OPERATOR_KEY_PATH}"
+      system_account_creds_file: "${NSC_DIR}/keys/creds/${cluster}/SYS/sys.creds"
+      operator_signing_key_file: "${OPERATOR_KEY_PATH}"
     },
 EOF
   )
@@ -100,7 +98,8 @@ done
 RNA_CONFIG="${RNA_CONFIG}${NATS_SYSTEMS::-1}]\n}"
 
 # Write out RNA config to file
-echo -e "${RNA_CONFIG}" > rna.cue
+echo -e "${RNA_CONFIG}" > "$CONFIG_DIR/rna.cue"
 
 # Ensure directory tree is globally navigable
+find ${CONFIG_DIR} -type f -exec chmod 644 {} \;
 find ${CONFIG_DIR} -type d -exec chmod 755 {} \;

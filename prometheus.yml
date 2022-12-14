@@ -1,6 +1,0 @@
-global:
-  scrape_interval: "15s"
-scrape_configs:
-- job_name: surveyor
-  static_configs:
-  - targets: ["host.docker.internal:7777"]

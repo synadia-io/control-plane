@@ -16,6 +16,14 @@ The provided docker-compose will deploy a sample 3-cluster NATS environment conn
 
 The deployed NATS instances will be exposed on ports `4222`, `4223`, and `4224` if you wish to query them directly
 
+#### Set Public URL (Optional)
+Update `helix.json`:
+```
+{
+  "public_url": "http://helix.your-domain.com"
+}
+```
+
 #### Bring up the stack
 
 ```bash

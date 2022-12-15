@@ -24,6 +24,7 @@ services:
     volumes:
       - conf:/conf
       - ./bootstrap.sh:/setup/bootstrap.sh:ro
+      - ./helix.json:/setup/helix.json:ro
 
   nats-a:
     container_name: helix-alpha-nats-a

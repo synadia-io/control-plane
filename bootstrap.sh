@@ -2,8 +2,12 @@
 
 cd "/conf"
 
+OVERLAY_CONFIG_FILE="helix.json"
+RNA_CONFIG_FILE="rna.cue"
+
 CLUSTERS="nats-a nats-b nats-c"
 CONFIG_DIR="/conf/helix"
+SETUP_DIR="/setup"
 NSC_DIR=${CONFIG_DIR}/nsc
 NSC_FLAGS="--config-dir=${NSC_DIR} --data-dir=${NSC_DIR}/store --keystore-dir=${NSC_DIR}/keys"
 NATS_SERVER_CONFIG=$(cat <<EOF
@@ -19,18 +23,22 @@ EOF
 
 RNA_CONFIG=$(cat <<EOF
 {
-  env: "local"
-  postgres_url: "postgres://helix:helix@localhost:5432/helix"
-  prometheus_url: "http://localhost:9090"
-  logging: {
-    components: {
-      auth: {
-        level: "warn"
+  "env": "local",
+  "postgres_url": "postgres://helix:helix@localhost:5432/helix",
+  "prometheus_url": "http://localhost:9090",
+  "logging": {
+    "components": {
+      "auth": {
+        "level": "warn"
       }
     }
-  }
+  },
 EOF
 )
+
+cleanup () {
+  rm -rf ${CONFIG_DIR}
+}
 
 if [[ -d ${CONFIG_DIR} ]] && [[ "${1}" == "-s" ]]; then
   echo "Using existing config directory"
@@ -48,7 +56,7 @@ fi
 
 mkdir -p ${CONFIG_DIR}
 
-NATS_SYSTEMS="\n  nats_systems: ["
+NATS_SYSTEMS='\n  "nats_systems": ['
 for cluster in ${CLUSTERS}; do
   # Create cluster operator
   nsc ${NSC_FLAGS} add operator ${cluster}
@@ -63,8 +71,8 @@ for cluster in ${CLUSTERS}; do
 
   # Create and associate operator signing key
   OPERATOR_NKEY_OUT=$(nsc ${NSC_FLAGS} generate nkey --operator --store 2>&1)
-  OPERATOR_KEY=$(echo "${OPERATOR_NKEY_OUT}" |head -1)
-  OPERATOR_KEY_PATH=$(echo "${OPERATOR_NKEY_OUT}" |grep '.nk$' |awk '{ print $4 }')
+  OPERATOR_KEY=$(echo "${OPERATOR_NKEY_OUT}" | head -1)
+  OPERATOR_KEY_PATH=$(echo "${OPERATOR_NKEY_OUT}" | grep '.nk$' | awk '{ print $4 }')
   nsc ${NSC_FLAGS} edit operator --sk ${OPERATOR_KEY}
 
   # Create nats server config
@@ -82,11 +90,11 @@ for cluster in ${CLUSTERS}; do
   # Setup nats server config for RNA
   NATS_SYSTEM=$(cat <<EOF
     {
-      name:                      "${cluster}"
-      urls:                      "nats://${cluster}:4222"
-      account_server_url:        "nats://${cluster}:4222"
-      system_account_creds_file: "${NSC_DIR}/keys/creds/${cluster}/SYS/sys.creds"
-      operator_signing_key_file: "${OPERATOR_KEY_PATH}"
+      "name":                      "${cluster}",
+      "urls":                      "nats://${cluster}:4222",
+      "account_server_url":        "nats://${cluster}:4222",
+      "system_account_creds_file": "${NSC_DIR}/keys/creds/${cluster}/SYS/sys.creds",
+      "operator_signing_key_file": "${OPERATOR_KEY_PATH}"
     },
 EOF
   )
@@ -97,8 +105,28 @@ done
 # Append nats system array to RNA config
 RNA_CONFIG="${RNA_CONFIG}${NATS_SYSTEMS::-1}]\n}"
 
+if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
+  OVERLAY_CONFIG=$(cat ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} | jq -e 'if . == {} then null else . end')
+  
+  if [[ ${?} -gt 1 ]]; then
+    echo "Invalid ${OVERLAY_CONFIG_FILE}"
+    cleanup
+    exit 1
+  elif [[ "${OVERLAY_CONFIG}" != "null" ]]; then
+    echo -e "Overlaying ${OVERLAY_CONFIG_FILE}\n${OVERLAY_CONFIG}"
+    RNA_CONFIG=$(echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]')
+  fi
+fi
+
 # Write out RNA config to file
-echo -e "${RNA_CONFIG}" > "$CONFIG_DIR/rna.cue"
+echo -e "${RNA_CONFIG}" | jq > "${CONFIG_DIR}/${RNA_CONFIG_FILE}"
+
+# Fail safely if invalid JSON
+if [[ ${?} -ne 0 ]]; then
+  cleanup
+  exit 1
+fi
+
 
 # Ensure directory tree is globally navigable
 find ${CONFIG_DIR} -type f -exec chmod 644 {} \;

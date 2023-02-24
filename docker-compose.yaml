@@ -28,7 +28,7 @@ services:
 
   nats-a:
     container_name: helix-alpha-nats-a
-    image: nats:2.9.9-alpine
+    image: nats:2.9.14-alpine
     hostname: nats
     command: ["nats-server", "--config", "/conf/helix/nats-a/nats-server.conf"]
     volumes:
@@ -42,7 +42,7 @@ services:
 
   nats-b:
     container_name: helix-alpha-nats-b
-    image: nats:2.9.9-alpine
+    image: nats:2.9.14-alpine
     hostname: nats
     command: ["nats-server", "--config", "/conf/helix/nats-b/nats-server.conf"]
     volumes:
@@ -56,7 +56,7 @@ services:
 
   nats-c:
     container_name: helix-alpha-nats-c
-    image: nats:2.9.9-alpine
+    image: nats:2.9.14-alpine
     hostname: nats
     command: ["nats-server", "--config", "/conf/helix/nats-c/nats-server.conf"]
     volumes:

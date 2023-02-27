@@ -36,12 +36,36 @@ RNA_CONFIG=$(cat <<EOF
 EOF
 )
 
+overlay () {
+  local RNA_CONFIG="$1"
+
+  OVERLAY_CONFIG=$(cat ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} | jq -e 'if . == {} then null else . end')
+
+  if [[ ${?} -gt 1 ]]; then
+    echo "Invalid ${OVERLAY_CONFIG_FILE}" >&2
+    cleanup
+    exit 1
+  elif [[ "${OVERLAY_CONFIG}" != "null" ]]; then
+    echo -e "Overlaying ${OVERLAY_CONFIG_FILE}" >&2
+    echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]'
+  fi
+}
+
+write_config () {
+  echo -e "${RNA_CONFIG}" | jq > "${CONFIG_DIR}/${RNA_CONFIG_FILE}"
+}
+
 cleanup () {
   rm -rf ${CONFIG_DIR}
 }
 
 if [[ -d ${CONFIG_DIR} ]] && [[ "${1}" == "-s" ]]; then
   echo "Using existing config directory"
+  # Apply overlay if present
+  if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
+    RNA_CONFIG=$(overlay "$(cat "${CONFIG_DIR}/${RNA_CONFIG_FILE}")")
+    write_config
+  fi
   exit 0
 elif [[ -d ${CONFIG_DIR} ]]; then
   if [[ "${1}" != "-f" ]]; then
@@ -105,21 +129,13 @@ done
 # Append nats system array to RNA config
 RNA_CONFIG="${RNA_CONFIG}${NATS_SYSTEMS::-1}]\n}"
 
+# Apply overlay if present
 if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
-  OVERLAY_CONFIG=$(cat ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} | jq -e 'if . == {} then null else . end')
-  
-  if [[ ${?} -gt 1 ]]; then
-    echo "Invalid ${OVERLAY_CONFIG_FILE}"
-    cleanup
-    exit 1
-  elif [[ "${OVERLAY_CONFIG}" != "null" ]]; then
-    echo -e "Overlaying ${OVERLAY_CONFIG_FILE}\n${OVERLAY_CONFIG}"
-    RNA_CONFIG=$(echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]')
-  fi
+  RNA_CONFIG=$(overlay "${RNA_CONFIG}")
 fi
 
 # Write out RNA config to file
-echo -e "${RNA_CONFIG}" | jq > "${CONFIG_DIR}/${RNA_CONFIG_FILE}"
+write_config
 
 # Fail safely if invalid JSON
 if [[ ${?} -ne 0 ]]; then

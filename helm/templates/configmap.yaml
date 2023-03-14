@@ -1,0 +1,108 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: {{ include "helix.fullname" . }}-config
+    namespace: {{ .Release.Namespace }}
+
+data:
+    rna.cue: |-
+        {
+            "env": "local"
+            {{- if .Values.helix.encryptionKey }}
+            encryption_key: {{ .Values.helix.encryptionKey | quote }}
+            {{- end }}
+
+            {{- if .Values.helix.port }}
+            http_public_addr: ":{{ .Values.helix.port }}"
+            {{- end }}
+
+            {{- if .Values.helix.adminPort }}
+            http_admin_addr: ":{{ .Values.helix.adminPort }}"
+            {{- end }}
+
+            {{- if .Values.metrics.port }}
+            http_metrics_addr: ":{{ .Values.metrics.port }}"
+            {{- end }}
+
+            {{- if .Values.helix.encryptionKeysRotated }}
+            encryption_keys_rotated: [
+            {{- range .Values.helix.encryptionKeysRotated }}
+              "{{ . }}"
+            {{- end }}
+            ]
+            {{- end }}
+
+            {{- if .Values.helix.postgresUrl }}
+            postgres_url: {{ .Values.helix.postgresUrl | quote }}
+            {{- end }}
+            {{- if .Values.helix.prometheusUrl }}
+            prometheus_url: {{ .Values.helix.prometheusUrl | quote }}
+            {{- end }}
+
+            "logging": {
+                "components": {
+                    {{- if .Values.embeddedPostgres.logLevel }}
+                    embedded_postgres: {{ .Values.embeddedPostgres.logLevel | quote }}
+                    {{- end }}
+                    {{- if .Values.embeddedPrometheus.logLevel }}
+                    embedded_prometheus: {{ .Values.embeddedPrometheus.logLevel | quote }}
+                    {{- end }}
+                    {{- if .Values.alertPoller.logLevel }}
+                    alert_poller: {{ .Values.alertPoller.logLevel | quote }}
+                    {{- end }}
+                    {{- if .Values.encryptionRotator.logLevel }}
+                    encryption_rotator: {{ .Values.encryptionRotator.logLevel | quote }}
+                    {{- end }}
+                    {{- if .Values.serviceObservationPoller.logLevel }}
+                    service_observation_poller: {{ .Values.serviceObservationPoller.logLevel | quote }}
+                    {{- end }}
+                }
+            }
+
+            "nats_systems": [
+                {{- range .Values.natsSystems }}
+                {
+                    "name": {{ .name | quote }},
+                    "urls": {{ .urls | quote }},
+                    "account_server_url": {{ .accountServerUrl | quote }},
+                    "system_account_creds_file": "/creds/{{ .name }}/sys.creds",
+                    "operator_signing_key_file": "/creds/{{ .name }}/operator.nk",
+                },
+                {{- end }}
+            ]
+
+            "jobs": {
+                "alert_poller": {
+                    {{- if .Values.alertPoller.enabled }}
+                    "enabled": {{ .Values.alertPoller.enabled }},
+                    {{- end }}
+                    {{- if .Values.alertPoller.intervalSeconds }}
+                    "interval_seconds": {{ .Values.alertPoller.intervalSeconds }},
+                    {{- end }}
+                    {{- if .Values.alertPoller.retentionDays }}
+                    "retention_days": {{ .Values.alertPoller.retentionDays }}
+                    {{- end }}
+                },
+                "encryption_rotator": {
+                    {{- if .Values.encryptionRotator.enabled }}
+                    "enabled": {{ .Values.encryptionRotator.enabled }},
+                    {{- end }}
+                    {{- if .Values.encryptionRotator.intervalSeconds }}
+                    "interval_seconds": {{ .Values.encryptionRotator.intervalSeconds }},
+                    {{- end }}
+                    {{- if .Values.encryptionRotator.rotationIntervalDays }}
+                    "rotation_interval_days": {{ .Values.encryptionRotator.rotationIntervalDays }}
+                    {{- end }}
+                },
+                "service_observation_poller": {
+                    {{- if .Values.serviceObservationPoller.enabled }}
+                    "enabled": {{ .Values.serviceObservationPoller.enabled }},
+                    {{- end }}
+                    {{- if .Values.serviceObservationPoller.intervalSeconds }}
+                    "interval_seconds": {{ .Values.serviceObservationPoller.intervalSeconds }}
+                    {{- end }}
+                }
+            }
+
+        }

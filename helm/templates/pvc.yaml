@@ -1,0 +1,38 @@
+{{- if .Values.embeddedPrometheus.persistent }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix.fullname" . }}-prometheus
+spec:
+  {{- if and .Values.embeddedPrometheus.pvc .Values.embeddedPrometheus.pvc.storageClassName }}
+  storageClassName: {{ .Values.embeddedPrometheus.pvc.storageClassName }}
+  {{- end }}
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      {{- if and .Values.embeddedPrometheus.pvc .Values.embeddedPrometheus.pvc.size }}
+      storage:  {{ .Values.embeddedPrometheus.pvc.size }}
+      {{- else }}
+      storage: 10Gi
+      {{- end }}
+{{- end }}
+{{- if .Values.embeddedPostgres.persistent }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix.fullname" . }}-postgres
+spec:
+  {{- if and .Values.embeddedPostgres.pvc .Values.embeddedPostgres.pvc.storageClassName }}
+  storageClassName: {{ .Values.embeddedPostgres.pvc.storageClassName }}
+  {{- end }}
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      {{- if and .Values.embeddedPostgres.pvc .Values.embeddedPostgres.pvc.size }}
+      storage:  {{ .Values.embeddedPostgres.pvc.size }}
+      {{- else }}
+      storage: 10Gi
+      {{- end }}
+{{- end }}

@@ -4,6 +4,7 @@ cd "/conf"
 
 OVERLAY_CONFIG_FILE="helix.json"
 RNA_CONFIG_FILE="rna.cue"
+NEW_INSTALL="true"
 
 CLUSTERS="nats-a nats-b nats-c"
 CONFIG_DIR="/conf/helix"
@@ -47,7 +48,12 @@ overlay () {
     exit 1
   elif [[ "${OVERLAY_CONFIG}" != "null" ]]; then
     echo -e "Overlaying ${OVERLAY_CONFIG_FILE}" >&2
-    echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]'
+    OUT_CONFIG=$(echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]')
+    if [[ ${?} -ne 0 ]]; then
+      echo "Overlay Failed" >&2
+      OUT_CONFIG="${RNA_CONFIG}"
+    fi
+    echo "${OUT_CONFIG}"
   fi
 }
 
@@ -56,11 +62,14 @@ write_config () {
 }
 
 cleanup () {
-  rm -rf ${CONFIG_DIR}
+  if [[ ${NEW_INSTALL} == "true" ]]; then
+    rm -rf ${CONFIG_DIR}
+  fi
 }
 
 if [[ -d ${CONFIG_DIR} ]] && [[ "${1}" == "-s" ]]; then
   echo "Using existing config directory"
+  NEW_INSTALL="false"
   # Apply overlay if present
   if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
     RNA_CONFIG=$(overlay "$(cat "${CONFIG_DIR}/${RNA_CONFIG_FILE}")")

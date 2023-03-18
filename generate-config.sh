@@ -13,6 +13,19 @@ config={}
 config_directory="$(pwd)/conf/helix"
 nsc_directory="${config_directory}/nsc"
 
+check_dependencies() {
+    command -v jq > /dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+        echo "Error: jq is required to run this script" >&2
+        exit 1
+    fi
+    command -v nsc > /dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+        echo "Error: nsc is required to run this script" >&2
+        exit 1
+    fi
+}
+
 prompt () {
     prompt="$1"
     regex=${2:-'.*'}
@@ -157,13 +170,7 @@ nsc_table_to_json() {
 setup_nsc() {
     server_name="$1"
     server_url="$2"
-
-    command -v nsc > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-        return
-    fi
-
-    mkdir -p "${nsc_directory}/${server_name}"
+    account_server_url="$3"
 
     operators=$(nsc_table_to_json "list operators" | jq -r '.Operators[].Name')
     operator=""
@@ -194,8 +201,8 @@ setup_nsc() {
         if [[ "${response}" =~ ^[yY] ]]; then
             operator_name=$(prompt "  Operator Name" "" "true" "${server_name}")
             nsc add operator -n "${operator_name}"
-            nsc edit operator --account-jwt-server-url "${server_url}"
             nsc edit operator --service-url "${server_url}"
+            nsc edit operator --account-jwt-server-url "${account_server_url}"
             operator="${operator_name}"
         else
             exit 1
@@ -321,29 +328,40 @@ while true; do
 
     mkdir -p "${nsc_directory}/${name}"
 
-    setup_nsc "${name}" "${account_server_url}"
-
-    if [[ -f "${nsc_directory}/${name}/sys.creds" ]]; then
-        system=$(add_kv_to_object "system_account_creds_file" "${nsc_directory}/${name}/sys.creds" "${system}")
-    fi
-
-    if [[ -f "${nsc_directory}/${name}/operator.nkey" ]]; then
-        system=$(add_kv_to_object "operator_signing_key_file" "${nsc_directory}/${name}/operator.nkey" "${system}")
+    response=$(prompt "  Configure with nsc?" "${regex_yn}" "true" "Yes")
+    if [[ "${response}" =~ ^[yY] ]]; then
+        setup_nsc "${name}" "${urls}" "${account_server_url}"
     fi
 
     if [[ ! -f "${nsc_directory}/${name}/sys.creds" ]]; then
-        system_account_creds_file=$(prompt "  System Account Credentials File Path")
-        while [[ ! -f "$system_account_creds_file" ]]; do
+        system_account_creds_path=$(prompt "  System Account Credentials File Path")
+        while [[ ! -f "$system_account_creds_path" ]]; do
             echo "File does not exist" >&2
-            system_account_creds_file=$(prompt "  System Account Credentials File Path" "" "true")
+            system_account_creds_path=$(prompt "  System Account Credentials File Path" "" "true")
         done
+        cp "${system_account_creds_path}" "${nsc_directory}/${name}/sys.creds"
     fi
     if [[ ! -f "${nsc_directory}/${name}/operator.nk" ]]; then
-        operator_signing_key_file=$(prompt "  Operator Signing Key File Path")
-        while [[ ! -f "$operator_signing_key_file" ]]; do
+        operator_signing_key_path=$(prompt "  Operator Signing Key File Path")
+        while [[ ! -f "$operator_signing_key_path" ]]; do
             echo "File does not exist" >&2
-            operator_signing_key_file=$(prompt "  Operator Signing Key File Path" "" "true")
+            operator_signing_key_path=$(prompt "  Operator Signing Key File Path" "" "true")
         done
+        cp "${operator_signing_key_path}" "${nsc_directory}/${name}/operator.nk"
+    fi
+
+    if [[ -f "${nsc_directory}/${name}/sys.creds" ]]; then
+        system=$(add_kv_to_object "system_account_creds_file" "${nsc_directory}/${name}/sys.creds" "${system}")
+    else
+        echo "  Error: Unable to determine system account credentials file path" >&2
+        exit 1
+    fi
+
+    if [[ -f "${nsc_directory}/${name}/operator.nk" ]]; then
+        system=$(add_kv_to_object "operator_signing_key_file" "${nsc_directory}/${name}/operator.nk" "${system}")
+    else
+        echo "  Error: Unable to determine operator signing key file path" >&2
+        exit 1
     fi
 
     systems=$(add_json_to_array "${system}" "${systems}")
@@ -421,6 +439,8 @@ echo \
  | __ | _|| |__ | | >  <  | (_| (_) | .` | _| | | (_ |
  |_||_|___|____|___/_/\_\  \___\___/|_|\_|_| |___\___|
 '
+
+check_dependencies
 
 mkdir -p "${nsc_directory}"
 

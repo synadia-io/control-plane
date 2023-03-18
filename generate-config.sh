@@ -91,19 +91,67 @@ add_json_to_array() {
     echo "${updated}"
 }
 
-parse_nsc() {
+get_nkey_path() {
+    base="$1"
+    key="$2"
+
+    echo "${base}/keys/${key:0:1}/${key:1:2}/${key}.nk"
+}
+
+nsc_table_to_json() {
     command="$1"
-    i=${2:-2}
-    j=${3:-0}
 
-    out=$(nsc $1 2>&1 | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g" |sed -n '6,$p' |tac | sed '1,2d' |tr -d '[:blank:]')
+    input="$(eval "nsc ${command}" 2>&1)"
 
-    if [[ j -gt 0 ]]; then
-        echo "${out}" |awk -F '|' -v i="${i}" -v j="${j}" '{ print $i" "$j }'  
-    else
-        echo "${out}" |awk -F '|' -v i="${i}" '{ print $i }'
-    fi
+    filtered=""
+    while IFS= read -r line; do
+      filtered+=$(printf "${line}" | sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g')
+      filtered+="\n"
+    done <<< "${input}"
 
+    header=$(printf "${filtered}" | sed -n '2p' |awk '{ print $2 }')
+    keys=$(printf "${filtered}" | sed -n '4p' |tr -d '[:blank:]' | sed 's/\|/ /g')
+    values=$(printf "${filtered}" |sed -n '6,$p' |tac | sed '1d' |tr -d '[:blank:]')
+
+    json=[]
+
+    for line in ${values}; do
+      obj={}
+      i=2
+      for key in ${keys}; do
+        val=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }')
+        if [[ "${val}" == "*" ]]; then
+          val="true"
+        elif [[ "${val}" == "" ]]; then
+          val="false"
+        fi
+
+        if [[ "${header}" == "Keys" && "${key}" == "Key" ]]; then
+          prefix="${val:0:1}"
+
+          case ${prefix} in
+            "O")
+              obj=$(add_kv_to_object "Type" "operator" "${obj}")
+              ;;
+            "A")
+              obj=$(add_kv_to_object "Type" "account" "${obj}")
+              ;;
+            "U")
+              obj=$(add_kv_to_object "Type" "user" "${obj}")
+              ;;
+          esac
+
+        fi
+
+        obj=$(add_kv_to_object "${key}" "${val}" "${obj}")
+
+        ((i++))
+      done
+
+      json=$(add_json_to_array "${obj}" "${json}")
+  done
+
+  add_json_to_object "${header}" "${json}" "{}"
 }
 
 setup_nsc() {
@@ -115,21 +163,24 @@ setup_nsc() {
         return
     fi
 
-    operators=$(parse_nsc "list operators")
+    mkdir -p "${nsc_directory}/${server_name}"
+
+    operators=$(nsc_table_to_json "list operators" | jq -r '.Operators[].Name')
     operator=""
     system_account=""
-    system_user=""
+    system_account_name=""
+    system_user_name=""
 
     new_operator="false"
 
-    eval "nkeys_path=$(parse_nsc "env" 2 4 | grep "\$NKEYS_PATH" |awk '{ print $2 }')"
+    eval "nkeys_path=$(nsc_table_to_json "env" | jq -r '.NSC[] | select(.Setting == "$NKEYS_PATH") | .EffectiveValue')"
 
     if [[ -n ${operators} ]]; then
         response=$(prompt "  Use existing operator?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
             nsc list operators
             while [[ -z "${operator}" ]]; do
-                local default=$(echo "${operators}" | head -1)
+                default=$(nsc_table_to_json "env" | jq -r '.NSC[] | select(.Setting == "CurrentOperator") | .EffectiveValue')
                 operator=$(prompt "  Choose Operator" "" "true" "${default}")
                 operator=$(echo "${operators}" | grep "^${operator}$")
             done
@@ -141,88 +192,107 @@ setup_nsc() {
     if [[ ${new_operator} == "true" ]]; then
         response=$(prompt "  Create New Operator?" "${regex_yn}" "true" "No")
         if [[ "${response}" =~ ^[yY] ]]; then
-            nsc add operator -n "${server_name}"
+            operator_name=$(prompt "  Operator Name" "" "true" "${server_name}")
+            nsc add operator -n "${operator_name}"
             nsc edit operator --account-jwt-server-url "${server_url}"
             nsc edit operator --service-url "${server_url}"
-            operator="${server_name}"
+            operator="${operator_name}"
+        else
+            exit 1
         fi
     fi
 
     nsc env -o "${operator}" > /dev/null 2>&1
 
-    system_account=$(nsc describe operator "${operator}" -J | jq -r '.nats.system_account')
+    system_account=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.system_account | if . == null then "" else . end')
     if [[ -z ${system_account} ]]; then
         response=$(prompt "  Create New System Account?" "${regex_yn}" "true" "No")
         if [[ "${response}" =~ ^[yY] ]]; then
             nsc add account -n SYS
             nsc edit operator --system-account SYS
-            system_account="SYS"
-            nsc add user -a SYS -n sys
-            system_user="sys"
+            system_account_name="SYS"
+        else
+            exit 1
         fi
     else
-        system_account=$(parse_nsc "list accounts" 2 3 | grep "${system_account}$" | awk '{ print $1 }')
+        system_account_name=$(nsc_table_to_json "list accounts" | jq -r '.Accounts[] | select(.PublicKey == "'${system_account}'") | .Name')
     fi
 
-    nsc env -a "${system_account}" > /dev/null 2>&1
+    if [[ -z ${system_account_name} ]]; then
+        echo "  Error: Unable to determine system account name" >&2
+        exit 1
+    fi
 
-    if [[ -z ${system_user} ]]; then
+    nsc env -a "${system_account_name}" > /dev/null 2>&1
+
+    user_list=$(nsc_table_to_json "list users" | jq -r '.Users[].Name')
+
+    if [[ -n ${user_list} ]]; then
         response=$(prompt "  Use existing system user?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
-            nsc list users -a "${system_account}"
-            while [[ -z "${system_user}" ]]; do
-                default=$(parse_nsc "list users" 2 | head -1)
-                system_user=$(prompt "  Choose System User" "" "true" "${default}")
-                system_user=$(parse_nsc "list users" 2 | grep "^${system_user}$")
+            nsc list users >&2
+            while [[ -z "${system_user_name}" ]]; do
+                default=$(echo "${user_list}" | head -1)
+                system_user_name=$(prompt "  Choose System User" "" "true" "${default}")
+                system_user_name=$(echo "${user_list}" | grep "^${system_user_name}$")
             done
         fi
     else
-        nsc add user -a "${system_account}" -n sys
-        system_user="sys"
+        response=$(prompt "  Create New System User?" "${regex_yn}" "true" "No")
+        if [[ "${response}" =~ ^[yY] ]]; then
+            system_user_name=$(prompt "  System User Name" "" "true" "sys")
+            nsc add user -a "${system_account_name}" -n "${system_user_name}"
+        else
+            exit 1
+        fi
     fi
 
-    operator_signing_keys=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.signing_keys[]')
+    operator_signing_key=""
     operator_signing_key_path=""
+    operator_signing_keys=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.signing_keys | if . == null then "" else . end')
 
     if [[ -n ${operator_signing_keys} ]]; then
         response=$(prompt "  Use existing operator signing key?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
-            nsc describe operator -n "${operator}"
+            nsc describe operator -n "${operator}" >&2
+            echo "" >&2
             while [[ -z "${operator_signing_key}" ]]; do
                 default=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.signing_keys[]' | head -1)
                 operator_signing_key=$(prompt "  Choose Operator Signing Key" "" "true" "${default}")
                 operator_signing_key=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.signing_keys[]' | grep "^${operator_signing_key}$")
             done
-
-            operator_signing_key_path="${nkeys_path}/keys/${operator_signing_key:0:1}/${operator_signing_key:1:2}/${operator_signing_key}.nk"
-
-            if [[ -f "${operator_signing_key_path}" ]]; then
-                echo "Found Operator Signing Key" >&2
-            fi
         fi 
-    fi
-
-    if [[ -z "${operator_signing_key_path}" ]]; then
+    else
         response=$(prompt "  Generate New Operator Signing Key?" "${regex_yn}" "true" "No")
         if [[ "${response}" =~ ^[yY] ]]; then
-            operator_signing_key_path=$(nsc generate nkey --operator --store 2>&1 | grep '.nk$' |awk '{ print $4 }')
+            operator_signing_key=$(nsc generate nkey --operator --store 2>&1 | head -1)
+        else
+            exit 1
         fi
     fi
 
-    cp "${operator_signing_key_path}" "${nsc_directory}/${server_name}/operator.nk"
-
-    user_creds_path="${nkeys_path}/creds/${operator}/${system_account}/${system_user}.creds"
-
-    if [[ -f "${user_creds_path}" ]]; then
-        echo "Found System User Credentials" >&2
-        cp "${user_creds_path}" "${nsc_directory}/${server_name}/sys.creds"
+    operator_signing_key_path=$(get_nkey_path "${nkeys_path}" "${operator_signing_key}")
+    if [[ -z ${operator_signing_key_path} || ! -f ${operator_signing_key_path} ]]; then
+        echo "  Error: Unable to determine operator signing key path" >&2
+        exit 1
     else
+        echo "  Using existing operator signing key" >&2
+        cp "${operator_signing_key_path}" "${nsc_directory}/${server_name}/operator.nk"
+    fi
+
+    user_creds_path="${nkeys_path}/creds/${operator}/${system_account_name}/${system_user_name}.creds"
+
+    if [[ ! -f "${user_creds_path}" ]]; then
         response=$(prompt "  Generate New User Credentials?" "${regex_yn}" "true" "No")
         if [[ "${response}" =~ ^[yY] ]]; then
-            nsc generate creds -a "${system_account}" -n "${system_user}" > "${nsc_directory}/${server_name}/sys.creds"
+            nsc generate creds -a "${system_account_name}" -n "${system_user_name}" > "${nsc_directory}/${server_name}/sys.creds"
+        else
+            exit 1
         fi
+    else
+        echo "  Using existing user credentials" >&2
+        cp "${user_creds_path}" "${nsc_directory}/${server_name}/sys.creds"
     fi
-
 }
 
 setup_nats_systems() {
@@ -343,8 +413,15 @@ setup_jobs() {
 
     echo "${jobs}"
 }
+echo \
+'
+  _  _ ___ _    _____  __   ___ ___  _  _ ___ ___ ___
+ | || | __| |  |_ _\ \/ /  / __/ _ \| \| | __|_ _/ __|
+ | __ | _|| |__ | | >  <  | (_| (_) | .` | _| | | (_ |
+ |_||_|___|____|___/_/\_\  \___\___/|_|\_|_| |___\___|
+'
 
-mkdir -p $(pwd)/conf/helix/nsc
+mkdir -p "${nsc_directory}"
 
 public_url=$(prompt "Public URL" "${regex_url}")
 config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
@@ -352,7 +429,7 @@ config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
 listen_port=$(prompt "Listen Port" "^[0-9]+$" "true" "8080")
 config=$(add_kv_to_object "http_public_addr" ":${listen_port}" "${config}")
 
-response=$(prompt "Would you like to expose metrics? (y/N)" "${regex_yn}" "true" "No")
+response=$(prompt "Would you like to expose metrics?" "${regex_yn}" "true" "No")
 if [[ "${response}" =~ ^[yY] ]]; then
     metrics_port=$(prompt "Metrics Port" "^[0-9]+$" "true" "7777")
     config=$(add_kv_to_object "http_metrics_addr" ":${metrics_port}" "${config}")

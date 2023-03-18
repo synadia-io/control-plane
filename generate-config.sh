@@ -266,6 +266,7 @@ setup_nsc() {
         response=$(prompt "  Generate New Operator Signing Key?" "${regex_yn}" "true" "No")
         if [[ "${response}" =~ ^[yY] ]]; then
             operator_signing_key=$(nsc generate nkey --operator --store 2>&1 | head -1)
+            nsc edit operator --sk "${operator_signing_key}"
         else
             exit 1
         fi
@@ -337,7 +338,7 @@ while true; do
             system_account_creds_file=$(prompt "  System Account Credentials File Path" "" "true")
         done
     fi
-    if [[ ! -f "${nsc_directory}/${name}/operator.nkey" ]]; then
+    if [[ ! -f "${nsc_directory}/${name}/operator.nk" ]]; then
         operator_signing_key_file=$(prompt "  Operator Signing Key File Path")
         while [[ ! -f "$operator_signing_key_file" ]]; do
             echo "File does not exist" >&2
@@ -441,18 +442,40 @@ if [[ -n "${encryption_key}" ]]; then
 fi
 
 nats_systems=$(setup_nats_systems)
+if [[ $? -ne 0 ]]; then
+    exit $?
+fi
 if [[ -n ${nats_systems} ]]; then
     config=$(add_json_to_object "nats_systems" "${nats_systems}" "${config}")
 fi
 
 jobs=$(setup_jobs)
+if [[ $? -ne 0 ]]; then
+    exit $?
+fi
 if [[ -n ${jobs} ]]; then
     config=$(add_json_to_object "jobs" "${jobs}" "${config}")
 fi
 
 logging=$(setup_logging)
+if [[ $? -ne 0 ]]; then
+    exit $?
+fi
 if [[ -n ${logging} ]]; then
     config=$(add_json_to_object "logging" "${logging}" "${config}")
+    sleep 2
 fi
 
 echo "${config}" |jq
+
+response=$(prompt "Write config to file?" "${regex_yn}" "true" "Yes")
+if [[ "${response}" =~ ^[yY] ]]; then
+    config_file=$(prompt "Config File Path" "" "true" "helix.json")
+    if [[ -f "${config_file}" ]]; then
+        response=$(prompt "File exists, overwrite?" "${regex_yn}" "true" "No")
+        if [[ ! "${response}" =~ ^[yY] ]]; then
+            exit 0
+        fi
+    fi
+    echo "${config}" |jq > "${config_file}"
+fi

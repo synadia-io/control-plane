@@ -77,6 +77,22 @@ add_kv_to_object() {
     echo "${updated}"
 }
 
+add_kv_bool_to_object() {
+    key="$1"
+    value=$2
+    object="$3"
+
+    updated=$(echo "${object}" | jq --arg key "$key" --argjson value $value '. + {($key): $value}')
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error adding kv pair to object" >&2
+        echo "${object}"
+        return 1
+    fi
+
+    echo "${updated}"
+}
+
 add_json_to_object() {
     key="$1"
     json="$2"
@@ -446,7 +462,7 @@ setup_jobs() {
         job_json={}
         response=$(prompt "Enable ${job}?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[nN] ]]; then
-            job_json=$(add_kv_to_object "enabled" "false" "${job_json}")
+            job_json=$(add_kv_bool_to_object "enabled" false "${job_json}")
         fi
 
         if [[ job == "alert_poller" ]]; then

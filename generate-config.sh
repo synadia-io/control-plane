@@ -2,6 +2,10 @@
 
 # Generates a config file for Helix
 
+ADVANCED="false"
+HELM="false"
+HELM_MANAGED_SECRETS="true"
+
 regex_keys='^((awskms|gcpkms|azurekeyvault|hashivault|base64key):\/\/)'
 regex_loglevel='^(trace|debug|info|warn|error|fatal|panic)$'
 regex_nats_urls='^(nats://[^[:space:],]+)(,[[:space:]]*nats://[^[:space:],]+)*$'
@@ -9,9 +13,10 @@ regex_url='^https?://([a-zA-Z0-9.-]+)(:[0-9]+)?(/.*)?$'
 regex_yn='^[yYnN]'
 
 config={}
+secrets={}
 
-config_directory="$(pwd)/conf/helix"
-nsc_directory="${config_directory}/nsc"
+working_directory="$(pwd)"
+nsc_directory="conf/helix/nsc"
 
 check_dependencies() {
     command -v jq > /dev/null 2>&1
@@ -168,7 +173,7 @@ nsc_table_to_json() {
 }
 
 setup_nsc() {
-    server_name="$1"
+    system_name="$1"
     server_url="$2"
     account_server_url="$3"
 
@@ -197,9 +202,9 @@ setup_nsc() {
     fi
 
     if [[ ${new_operator} == "true" ]]; then
-        response=$(prompt "  Create New Operator?" "${regex_yn}" "true" "No")
+        response=$(prompt "  Create New Operator?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
-            operator_name=$(prompt "  Operator Name" "" "true" "${server_name}")
+            operator_name=$(prompt "  Operator Name" "" "true" "${system_name}")
             nsc add operator -n "${operator_name}"
             nsc edit operator --service-url "${server_url}"
             nsc edit operator --account-jwt-server-url "${account_server_url}"
@@ -213,7 +218,7 @@ setup_nsc() {
 
     system_account=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.system_account | if . == null then "" else . end')
     if [[ -z ${system_account} ]]; then
-        response=$(prompt "  Create New System Account?" "${regex_yn}" "true" "No")
+        response=$(prompt "  Create New System Account?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
             nsc add account -n SYS
             nsc edit operator --system-account SYS
@@ -245,7 +250,7 @@ setup_nsc() {
             done
         fi
     else
-        response=$(prompt "  Create New System User?" "${regex_yn}" "true" "No")
+        response=$(prompt "  Create New System User?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
             system_user_name=$(prompt "  System User Name" "" "true" "sys")
             nsc add user -a "${system_account_name}" -n "${system_user_name}"
@@ -257,6 +262,7 @@ setup_nsc() {
     operator_signing_key=""
     operator_signing_key_path=""
     operator_signing_keys=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.signing_keys | if . == null then "" else . end')
+
 
     if [[ -n ${operator_signing_keys} ]]; then
         response=$(prompt "  Use existing operator signing key?" "${regex_yn}" "true" "Yes")
@@ -270,7 +276,7 @@ setup_nsc() {
             done
         fi 
     else
-        response=$(prompt "  Generate New Operator Signing Key?" "${regex_yn}" "true" "No")
+        response=$(prompt "  Generate New Operator Signing Key?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
             operator_signing_key=$(nsc generate nkey --operator --store 2>&1 | head -1)
             nsc edit operator --sk "${operator_signing_key}"
@@ -285,21 +291,26 @@ setup_nsc() {
         exit 1
     else
         echo "  Using existing operator signing key" >&2
-        cp "${operator_signing_key_path}" "${nsc_directory}/${server_name}/operator.nk"
+        cp "${operator_signing_key_path}" "${working_directory}/${nsc_directory}/${system_name}/operator.nk"
     fi
 
     user_creds_path="${nkeys_path}/creds/${operator}/${system_account_name}/${system_user_name}.creds"
 
     if [[ ! -f "${user_creds_path}" ]]; then
-        response=$(prompt "  Generate New User Credentials?" "${regex_yn}" "true" "No")
+        response=$(prompt "  Generate New User Credentials?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
-            nsc generate creds -a "${system_account_name}" -n "${system_user_name}" > "${nsc_directory}/${server_name}/sys.creds"
+            nsc generate creds -a "${system_account_name}" -n "${system_user_name}" > "${working_directory}/${nsc_directory}/${system_name}/sys.creds"
         else
             exit 1
         fi
     else
         echo "  Using existing user credentials" >&2
-        cp "${user_creds_path}" "${nsc_directory}/${server_name}/sys.creds"
+        cp "${user_creds_path}" "${working_directory}/${nsc_directory}/${system_name}/sys.creds"
+    fi
+
+    if [[ ${new_operator} == "true" ]]; then
+        echo "NATS Server Configuration for Generated Operator: ${operator}" >&2
+        nsc generate config --nats-resolver >&2
     fi
 }
 
@@ -326,48 +337,75 @@ while true; do
     fi
     system=$(add_kv_to_object "account_server_url" "${account_server_url}" "${system}")
 
-    mkdir -p "${nsc_directory}/${name}"
+    mkdir -p "${working_directory}/${nsc_directory}/${name}"
 
     response=$(prompt "  Configure with nsc?" "${regex_yn}" "true" "Yes")
     if [[ "${response}" =~ ^[yY] ]]; then
         setup_nsc "${name}" "${urls}" "${account_server_url}"
     fi
 
-    if [[ ! -f "${nsc_directory}/${name}/sys.creds" ]]; then
-        system_account_creds_path=$(prompt "  System Account Credentials File Path")
-        while [[ ! -f "$system_account_creds_path" ]]; do
-            echo "File does not exist" >&2
-            system_account_creds_path=$(prompt "  System Account Credentials File Path" "" "true")
-        done
-        cp "${system_account_creds_path}" "${nsc_directory}/${name}/sys.creds"
-    fi
-    if [[ ! -f "${nsc_directory}/${name}/operator.nk" ]]; then
-        operator_signing_key_path=$(prompt "  Operator Signing Key File Path")
-        while [[ ! -f "$operator_signing_key_path" ]]; do
-            echo "File does not exist" >&2
-            operator_signing_key_path=$(prompt "  Operator Signing Key File Path" "" "true")
-        done
-        cp "${operator_signing_key_path}" "${nsc_directory}/${name}/operator.nk"
-    fi
+    if [[ ${HELM_MANAGED_SECRETS} == "false" ]]; then 
+        system_account_creds_secret_name=$(prompt "  Kubernetes Secret Name for System Account Credentials File (${system_name})" "")
+        operator_signing_key_secret_name=$(prompt "  Kubernetes Secret Name for Operator Signing Key (${system_name})" "")
+        system=$(add_kv_to_object "system_account_creds_secret_name" "${system_account_creds_secret_name}" "${system}")
+        system=$(add_kv_to_object "operator_signing_key_secret_name" "${operator_signing_key_secret_name}" "${system}")
 
-    if [[ -f "${nsc_directory}/${name}/sys.creds" ]]; then
-        system=$(add_kv_to_object "system_account_creds_file" "${nsc_directory}/${name}/sys.creds" "${system}")
     else
-        echo "  Error: Unable to determine system account credentials file path" >&2
-        exit 1
-    fi
+        if [[ ! -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
+            system_account_creds_path=$(prompt "  System Account Credentials File Path")
+            while [[ ! -f "$system_account_creds_path" ]]; do
+                echo "File does not exist" >&2
+                system_account_creds_path=$(prompt "  System Account Credentials File Path" "" "true")
+            done
+            cp "${system_account_creds_path}" "${working_directory}/${nsc_directory}/${name}/sys.creds"
+        fi
+        if [[ ! -f "${working_directory}/${nsc_directory}/${name}/operator.nk" ]]; then
+            operator_signing_key_path=$(prompt "  Operator Signing Key File Path")
+            while [[ ! -f "$operator_signing_key_path" ]]; do
+                echo "File does not exist" >&2
+                operator_signing_key_path=$(prompt "  Operator Signing Key File Path" "" "true")
+            done
+            cp "${operator_signing_key_path}" "${working_directory}/${nsc_directory}/${name}/operator.nk"
+        fi
 
-    if [[ -f "${nsc_directory}/${name}/operator.nk" ]]; then
-        system=$(add_kv_to_object "operator_signing_key_file" "${nsc_directory}/${name}/operator.nk" "${system}")
-    else
-        echo "  Error: Unable to determine operator signing key file path" >&2
-        exit 1
+        if [[ -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
+            system=$(add_kv_to_object "system_account_creds_file" "/${nsc_directory}/${name}/sys.creds" "${system}")
+        else
+            echo "  Error: Unable to determine system account credentials file path" >&2
+            exit 1
+        fi
+
+        if [[ -f "${working_directory}/${nsc_directory}/${name}/operator.nk" ]]; then
+            system=$(add_kv_to_object "operator_signing_key_file" "/${nsc_directory}/${name}/operator.nk" "${system}")
+        else
+            echo "  Error: Unable to determine operator signing key file path" >&2
+            exit 1
+        fi
     fi
 
     systems=$(add_json_to_array "${system}" "${systems}")
 done
 
     echo "${systems}"
+}
+
+prepare_helm_secret_values() {
+    systems=$1
+    secret_values="{}"
+    nats_systems="{}"
+
+
+    for system in $(jq -c '.[]' <<< "${systems}"); do
+        system_name=$(jq -r '.name' <<< "${system}")
+        operator_signing_key=$(base64 < $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}"))
+        system_account_creds=$(base64 < $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}"))
+
+        nats_systems=$(add_json_to_object "${system_name}" "{\"operator_signing_key\": \"${operator_signing_key}\", \"system_account_creds\": \"${system_account_creds}\"}" "${nats_systems}")
+    done
+
+    secret_values=$(add_json_to_object "nats_systems" "${nats_systems}" "${secret_values}")
+
+    echo "${secret_values}"
 }
 
 setup_logging() {
@@ -442,7 +480,24 @@ echo \
 
 check_dependencies
 
-mkdir -p "${nsc_directory}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --advanced)
+      ADVANCED=true
+      shift
+      ;;
+    --helm)
+      HELM=true
+      shift
+      ;;
+    *)
+      echo "Error: Invalid argument: $1"
+      exit 1
+      ;;
+  esac
+done
+
+mkdir -p "${working_directory}/${nsc_directory}"
 
 public_url=$(prompt "Public URL" "${regex_url}")
 config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
@@ -450,15 +505,25 @@ config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
 listen_port=$(prompt "Listen Port" "^[0-9]+$" "true" "8080")
 config=$(add_kv_to_object "http_public_addr" ":${listen_port}" "${config}")
 
-response=$(prompt "Would you like to expose metrics?" "${regex_yn}" "true" "No")
-if [[ "${response}" =~ ^[yY] ]]; then
-    metrics_port=$(prompt "Metrics Port" "^[0-9]+$" "true" "7777")
-    config=$(add_kv_to_object "http_metrics_addr" ":${metrics_port}" "${config}")
+
+if [[ ${ADVANCED} == "true" ]]; then
+    response=$(prompt "Would you like to expose metrics?" "${regex_yn}" "true" "No")
+    if [[ "${response}" =~ ^[yY] ]]; then
+        metrics_port=$(prompt "Metrics Port" "^[0-9]+$" "true" "7777")
+        config=$(add_kv_to_object "http_metrics_addr" ":${metrics_port}" "${config}")
+    fi
 fi
 
 encryption_key=$(prompt "Encryption Key URL (Empty to generate local key)" ${regex_keys} "true")
 if [[ -n "${encryption_key}" ]]; then
     config=$(add_kv_to_object "encryption_key" "${encryption_key}" "${config}")
+fi
+
+if [[ ${HELM} == "true" ]]; then
+    response=$(prompt "Would you like the Helm chart to manage NATS System Credentials?" "${regex_yn}" "true" "Yes")
+    if [[ "${response}" =~ ^[nN] ]]; then
+        HELM_MANAGED_SECRETS="false"
+    fi
 fi
 
 nats_systems=$(setup_nats_systems)
@@ -469,21 +534,29 @@ if [[ -n ${nats_systems} ]]; then
     config=$(add_json_to_object "nats_systems" "${nats_systems}" "${config}")
 fi
 
-jobs=$(setup_jobs)
-if [[ $? -ne 0 ]]; then
-    exit $?
-fi
-if [[ -n ${jobs} ]]; then
-    config=$(add_json_to_object "jobs" "${jobs}" "${config}")
+if [[ ${ADVANCED} == "true" ]]; then
+    jobs=$(setup_jobs)
+    if [[ $? -ne 0 ]]; then
+        exit $?
+    fi
+    if [[ -n ${jobs} ]]; then
+        config=$(add_json_to_object "jobs" "${jobs}" "${config}")
+    fi
 fi
 
-logging=$(setup_logging)
-if [[ $? -ne 0 ]]; then
-    exit $?
+if [[ ${ADVANCED} == "true" ]]; then
+    logging=$(setup_logging)
+    if [[ $? -ne 0 ]]; then
+        exit $?
+    fi
+    if [[ -n ${logging} ]]; then
+        config=$(add_json_to_object "logging" "${logging}" "${config}")
+        sleep 2
+    fi
 fi
-if [[ -n ${logging} ]]; then
-    config=$(add_json_to_object "logging" "${logging}" "${config}")
-    sleep 2
+
+if [[ ${HELM} == "true" && ${HELM_MANAGED_SECRETS} == "true" ]]; then
+    secrets=$(prepare_helm_secret_values "${nats_systems}")
 fi
 
 echo "${config}" |jq
@@ -498,4 +571,18 @@ if [[ "${response}" =~ ^[yY] ]]; then
         fi
     fi
     echo "${config}" |jq > "${config_file}"
+fi
+
+if [[ ${secrets} != "{}" ]]; then
+    response=$(prompt "Write Helm secrets to file?" "${regex_yn}" "true" "Yes")
+    if [[ "${response}" =~ ^[yY] ]]; then
+        secrets_file=$(prompt "Config File Path" "" "true" "helix-secrets.json")
+        if [[ -f "${config_file}" ]]; then
+            response=$(prompt "File exists, overwrite?" "${regex_yn}" "true" "No")
+            if [[ ! "${response}" =~ ^[yY] ]]; then
+                exit 0
+            fi
+        fi
+        echo "${secrets}" |jq > "${secrets_file}"
+    fi
 fi

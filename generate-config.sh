@@ -355,18 +355,17 @@ while true; do
 
     mkdir -p "${working_directory}/${nsc_directory}/${name}"
 
-    response=$(prompt "  Configure with nsc?" "${regex_yn}" "true" "Yes")
-    if [[ "${response}" =~ ^[yY] ]]; then
-        setup_nsc "${name}" "${urls}" "${account_server_url}"
-    fi
-
     if [[ ${HELM_MANAGED_SECRETS} == "false" ]]; then 
-        system_account_creds_secret_name=$(prompt "  Kubernetes Secret Name for System Account Credentials File (${system_name})" "")
-        operator_signing_key_secret_name=$(prompt "  Kubernetes Secret Name for Operator Signing Key (${system_name})" "")
+        system_account_creds_secret_name=$(prompt "  Kubernetes Secret Name for System Account Credentials File" "" "true" "helix-${name}")
+        operator_signing_key_secret_name=$(prompt "  Kubernetes Secret Name for Operator Signing Key" "" "true" "helix-${name}")
         system=$(add_kv_to_object "system_account_creds_secret_name" "${system_account_creds_secret_name}" "${system}")
         system=$(add_kv_to_object "operator_signing_key_secret_name" "${operator_signing_key_secret_name}" "${system}")
 
     else
+        response=$(prompt "  Configure with nsc?" "${regex_yn}" "true" "Yes")
+        if [[ "${response}" =~ ^[yY] ]]; then
+            setup_nsc "${name}" "${urls}" "${account_server_url}"
+        fi
         if [[ ! -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
             system_account_creds_path=$(prompt "  System Account Credentials File Path")
             while [[ ! -f "$system_account_creds_path" ]]; do
@@ -416,7 +415,7 @@ prepare_helm_secret_values() {
         operator_signing_key=$(base64 < $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}"))
         system_account_creds=$(base64 < $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}"))
 
-        nats_systems=$(add_json_to_object "${system_name}" "{\"operator_signing_key\": \"${operator_signing_key}\", \"system_account_creds\": \"${system_account_creds}\"}" "${nats_systems}")
+        nats_systems=$(add_json_to_object "${system_name}" "{\"operator.nk\": \"${operator_signing_key}\", \"sys.creds\": \"${system_account_creds}\"}" "${nats_systems}")
     done
 
     secret_values=$(add_json_to_object "nats_systems" "${nats_systems}" "${secret_values}")

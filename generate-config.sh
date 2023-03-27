@@ -5,6 +5,8 @@
 ADVANCED="false"
 HELM="false"
 HELM_MANAGED_SECRETS="true"
+REGISTRY_URL="https://registry.helix-dev.synadia.io"
+NGS_KEY_ID="ODLC22NIQQ5U4J6ZDTVOFKTEX4F77E7TVM2RHWSG7N266YOVKTRI4EWX"
 
 regex_keys='^((awskms|gcpkms|azurekeyvault|hashivault|base64key):\/\/)'
 regex_loglevel='^(trace|debug|info|warn|error|fatal|panic)$'
@@ -19,16 +21,18 @@ working_directory="$(pwd)"
 nsc_directory="conf/helix/nsc"
 
 check_dependencies() {
-    command -v jq > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-        echo "Error: jq is required to run this script" >&2
-        exit 1
-    fi
-    command -v nsc > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-        echo "Error: nsc is required to run this script" >&2
-        exit 1
-    fi
+    bins=(
+        "jq"
+        "nsc"
+    )
+
+    for bin in "${bins[@]}"; do
+        command -v "${bin}" > /dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            echo "Error: ${bin} is required to run this script" >&2
+            exit 1
+        fi
+    done
 }
 
 prompt () {
@@ -36,6 +40,7 @@ prompt () {
     regex=${2:-'.*'}
     allow_empty="${3:-"false"}"
     default="${4:-""}"
+    password="${5:-"false"}"
 
     prompt_text="${prompt}"
 
@@ -44,18 +49,22 @@ prompt () {
     fi
 
     while true; do
-        read -p "${prompt_text}: " input
-        input=$(echo "${input}" | tr -d '\n')
+        FLAGS="-p"
+        if [[ "${password}" == "true" ]]; then
+            FLAGS="-s ${FLAGS}"
+        fi
+        read ${FLAGS} "${prompt_text}: " input
+        input=$(echo "${input}" | tr -d '[:space:]')
         if [[ -z "${input}" && "${allow_empty}" == "true" ]]; then
             echo ${default}
             break
         fi
+        if [[ -z "${input}" ]]; then
+            continue
+        fi
         if [[ "${input}" =~ ${regex} ]]; then
             echo ${input}
             break
-        fi
-        if [[ -z "${input}" ]]; then
-            continue
         fi
         echo "Invalid Input" >&2
     done
@@ -135,7 +144,16 @@ get_nkey_path() {
 nsc_table_to_json() {
     command="$1"
 
+    if [[ "${command}" =~ ^describe ]]; then
+      echo "'nsc describe' not supported. Use built-in -J flag" >&2
+      exit
+    fi
+
     input="$(eval "nsc ${command}" 2>&1)"
+    if [[ ! "${input}" =~ ^\+- ]]; then
+      echo "{}"
+      exit
+    fi
 
     filtered=""
     while IFS= read -r line; do
@@ -144,20 +162,28 @@ nsc_table_to_json() {
     done <<< "${input}"
 
     header=$(printf "${filtered}" | sed -n '2p' |awk '{ print $2 }')
-    keys=$(printf "${filtered}" | sed -n '4p' |tr -d '[:blank:]' | sed 's/\|/ /g')
-    values=$(printf "${filtered}" |sed -n '6,$p' |tac | sed '1d' |tr -d '[:blank:]')
+    keys=$(printf "${filtered}" | sed -n '4p' |tr -d '[:blank:]' |sed 's/|$//;s/^|//')
+    values=$(printf "${filtered}" |sed -n '6,$p' |tac | sed '1d;s/|$//;s/^|//')
 
     json=[]
 
-    for line in ${values}; do
+    IFS=$'\n'; for line in ${values}; do
       obj={}
-      i=2
-      for key in ${keys}; do
-        val=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }')
+      i=1
+
+      setting=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }')
+      if [[ "${setting}" =~ ^$|^\+- ]]; then continue; fi
+
+      IFS='\|'; for key in ${keys}; do
+        val=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }' | sed 's/^[[:blank:]]\+//;s/[[:blank:]]\+$//')
+        if [[ "${command}" =~ ^env && ${i} -eq 1 ]]; then val=$(echo ${val} | tr -d '[:blank:]'); fi
+
         if [[ "${val}" == "*" ]]; then
           val="true"
-        elif [[ "${val}" == "" ]]; then
+        elif [[ "${val}" =~ ^$|^No$ ]]; then
           val="false"
+        elif [[ "${val}" =~ ^Ifset ]];  then
+          val=""
         fi
 
         if [[ "${header}" == "Keys" && "${key}" == "Key" ]]; then
@@ -188,32 +214,64 @@ nsc_table_to_json() {
   add_json_to_object "${header}" "${json}" "{}"
 }
 
+nsc_env_exists() {
+  eval "nsc_store=$(nsc_table_to_json "env" | jq -r '.NSC[] | select(.Setting == "CurrentStoreDir") | .EffectiveValue')"
+  if [[ -z $(ls -A ${nsc_store} 2>/dev/null) ]]; then
+    response=$(prompt "  Current nsc store is empty. Initialize new nsc environment?" "${regex_yn}" "true" "Yes")
+    if [[ "${response}" =~ ^[yY] ]]; then
+      echo "false"
+    else
+      return 1
+    fi
+  else
+    echo "true"
+  fi
+}
+
 setup_nsc() {
     system_name="$1"
     server_url="$2"
     account_server_url="$3"
 
-    operators=$(nsc_table_to_json "list operators" | jq -r '.Operators[].Name')
+    env_exists=$(nsc_env_exists)
+    if [[ $? -ne 0 ]]; then return 1; fi
+
+    if [[ ${env_exists} != "true" ]]; then nsc init >&2; fi
+    if [[ $? -ne 0 ]]; then return 1; fi
+
+    operators=$(nsc_table_to_json "list operators" | jq -r 'if . == {} then . else .Operators[].Name end')
     operator=""
     system_account=""
     system_account_name=""
     system_user_name=""
 
-    new_operator="false"
+    if [[ $(nsc describe operator -J | jq -r '.iss') == "${NGS_KEY_ID}" ]]; then
+      operators="{}"
+    fi
+
+    new_operator="true"
 
     eval "nkeys_path=$(nsc_table_to_json "env" | jq -r '.NSC[] | select(.Setting == "$NKEYS_PATH") | .EffectiveValue')"
 
-    if [[ -n ${operators} ]]; then
+    if [[ ${operators} != "{}" ]]; then
         response=$(prompt "  Use existing operator?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
+            new_operator="false"
             nsc list operators
             while [[ -z "${operator}" ]]; do
                 default=$(nsc_table_to_json "env" | jq -r '.NSC[] | select(.Setting == "CurrentOperator") | .EffectiveValue')
                 operator=$(prompt "  Choose Operator" "" "true" "${default}")
-                operator=$(echo "${operators}" | grep "^${operator}$")
+                nsc describe operator "${operator}" >/dev/null 2>&1
+                if [[ $? -ne 0 ]]; then continue; fi
             done
-        else
-            new_operator="true"
+
+            if [[ "${env_exists}" != "true" ]]; then
+              account_server=$(nsc describe operator -J | jq -r '.nats.account_server_url | if . == null then "" else . end')
+              service_urls=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.operator_service_urls[0] | if . == null then "" else . end')
+
+              if [[ "${account_server}" == "" ]]; then nsc edit operator --account-jwt-server-url "${account_server_url}"; fi
+              if [[ "${service_urls}" == "" ]]; then nsc edit operator --service-url "${server_url}"; fi
+            fi
         fi
     fi
 
@@ -226,6 +284,7 @@ setup_nsc() {
             nsc edit operator --account-jwt-server-url "${account_server_url}"
             operator="${operator_name}"
         else
+            echo "  Error: Operator is required" >&2
             exit 1
         fi
     fi
@@ -240,6 +299,7 @@ setup_nsc() {
             nsc edit operator --system-account SYS
             system_account_name="SYS"
         else
+            echo "  Error: System Account is required" >&2
             exit 1
         fi
     else
@@ -271,6 +331,7 @@ setup_nsc() {
             system_user_name=$(prompt "  System User Name" "" "true" "sys")
             nsc add user -a "${system_account_name}" -n "${system_user_name}"
         else
+            echo "  Error: System User is required" >&2
             exit 1
         fi
     fi
@@ -297,6 +358,7 @@ setup_nsc() {
             operator_signing_key=$(nsc generate nkey --operator --store 2>&1 | head -1)
             nsc edit operator --sk "${operator_signing_key}"
         else
+            echo "  Error: Operator Signing Key is required" >&2
             exit 1
         fi
     fi
@@ -317,6 +379,7 @@ setup_nsc() {
         if [[ "${response}" =~ ^[yY] ]]; then
             nsc generate creds -a "${system_account_name}" -n "${system_user_name}" > "${working_directory}/${nsc_directory}/${system_name}/sys.creds"
         else
+            echo "  Error: User Credentials are required" >&2
             exit 1
         fi
     else
@@ -331,96 +394,148 @@ setup_nsc() {
 }
 
 setup_nats_systems() {
-systems=[]
-while true; do
-    echo "Add NATS System" >&2
+    local systems="[]"
 
-    system={}
+    while true; do
+        echo "Add NATS System" >&2
 
-    name=$(prompt "  NATS System Name (Empty to proceed)" "" "true")
-    if [[ -z "$name" ]]; then
-        break
-    fi
+        system_config="{}"
 
-    system=$(add_kv_to_object "name" "${name}" "${system}")
+        local system="{}"
+        local secrets="{}"
 
-    urls=$(prompt "  NATS System URLs (Comma delimited)" "${regex_nats_urls}")
-    system=$(add_kv_to_object "urls" "${urls}" "${system}")
-
-    account_server_url=$(prompt "  Account Server URL (Empty for NATS internal resolver)" "" "true")
-    if [[ -z ${account_server_url} ]]; then
-        account_server_url="${urls}"
-    fi
-    system=$(add_kv_to_object "account_server_url" "${account_server_url}" "${system}")
-
-    mkdir -p "${working_directory}/${nsc_directory}/${name}"
-
-    if [[ ${HELM_MANAGED_SECRETS} == "false" ]]; then 
-        system_account_creds_secret_name=$(prompt "  Kubernetes Secret Name for System Account Credentials File" "" "true" "helix-${name}")
-        operator_signing_key_secret_name=$(prompt "  Kubernetes Secret Name for Operator Signing Key" "" "true" "helix-${name}")
-        system=$(add_kv_to_object "system_account_creds_secret_name" "${system_account_creds_secret_name}" "${system}")
-        system=$(add_kv_to_object "operator_signing_key_secret_name" "${operator_signing_key_secret_name}" "${system}")
-
-    else
-        response=$(prompt "  Configure with nsc?" "${regex_yn}" "true" "Yes")
-        if [[ "${response}" =~ ^[yY] ]]; then
-            setup_nsc "${name}" "${urls}" "${account_server_url}"
-        fi
-        if [[ ! -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
-            system_account_creds_path=$(prompt "  System Account Credentials File Path")
-            while [[ ! -f "$system_account_creds_path" ]]; do
-                echo "File does not exist" >&2
-                system_account_creds_path=$(prompt "  System Account Credentials File Path" "" "true")
-            done
-            cp "${system_account_creds_path}" "${working_directory}/${nsc_directory}/${name}/sys.creds"
-        fi
-        if [[ ! -f "${working_directory}/${nsc_directory}/${name}/operator.nk" ]]; then
-            operator_signing_key_path=$(prompt "  Operator Signing Key File Path")
-            while [[ ! -f "$operator_signing_key_path" ]]; do
-                echo "File does not exist" >&2
-                operator_signing_key_path=$(prompt "  Operator Signing Key File Path" "" "true")
-            done
-            cp "${operator_signing_key_path}" "${working_directory}/${nsc_directory}/${name}/operator.nk"
+        name=$(prompt "  NATS System Name (Empty to proceed)" "" "true")
+        if [[ -z "$name" ]]; then
+            break
         fi
 
-        if [[ -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
-            system=$(add_kv_to_object "system_account_creds_file" "/${nsc_directory}/${name}/sys.creds" "${system}")
+        system=$(add_kv_to_object "name" "${name}" "${system}")
+
+        urls=$(prompt "  NATS System URLs (Comma delimited)" "${regex_nats_urls}")
+        system=$(add_kv_to_object "urls" "${urls}" "${system}")
+
+        account_server_url=$(prompt "  Account Server URL (Empty for NATS internal resolver)" "" "true")
+        if [[ -z ${account_server_url} ]]; then
+            account_server_url="${urls}"
+        fi
+        system=$(add_kv_to_object "account_server_url" "${account_server_url}" "${system}")
+
+        mkdir -p "${working_directory}/${nsc_directory}/${name}"
+
+        if [[ ${HELM_MANAGED_SECRETS} == "false" ]]; then 
+            secret_name=$(prompt "  Kubernetes Secret Name for System Creds & Signing Key" "" "true" "helix-${name}")
+            secrets=$(add_kv_to_object "${name}" "${secret_name}" "${secrets}")
         else
-            echo "  Error: Unable to determine system account credentials file path" >&2
-            exit 1
+            response=$(prompt "  Configure with nsc?" "${regex_yn}" "true" "Yes")
+            if [[ "${response}" =~ ^[yY] ]]; then
+                setup_nsc "${name}" "${urls}" "${account_server_url}"
+                if [[ $? -ne 0 ]]; then return 1; fi
+            fi
+            if [[ ! -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
+                system_account_creds_path=$(prompt "  System Account Credentials File Path")
+                while [[ ! -f "$system_account_creds_path" ]]; do
+                    echo "File does not exist" >&2
+                    system_account_creds_path=$(prompt "  System Account Credentials File Path" "" "true")
+                done
+                cp "${system_account_creds_path}" "${working_directory}/${nsc_directory}/${name}/sys.creds"
+            fi
+            if [[ ! -f "${working_directory}/${nsc_directory}/${name}/operator.nk" ]]; then
+                operator_signing_key_path=$(prompt "  Operator Signing Key File Path")
+                while [[ ! -f "$operator_signing_key_path" ]]; do
+                    echo "File does not exist" >&2
+                    operator_signing_key_path=$(prompt "  Operator Signing Key File Path" "" "true")
+                done
+                cp "${operator_signing_key_path}" "${working_directory}/${nsc_directory}/${name}/operator.nk"
+            fi
+
+            if [[ -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
+                system=$(add_kv_to_object "system_account_creds_file" "/${nsc_directory}/${name}/sys.creds" "${system}")
+            else
+                echo "  Error: Unable to determine system account credentials file path" >&2
+                exit 1
+            fi
+
+            if [[ -f "${working_directory}/${nsc_directory}/${name}/operator.nk" ]]; then
+                system=$(add_kv_to_object "operator_signing_key_file" "/${nsc_directory}/${name}/operator.nk" "${system}")
+            else
+                echo "  Error: Unable to determine operator signing key file path" >&2
+                exit 1
+            fi
         fi
 
-        if [[ -f "${working_directory}/${nsc_directory}/${name}/operator.nk" ]]; then
-            system=$(add_kv_to_object "operator_signing_key_file" "/${nsc_directory}/${name}/operator.nk" "${system}")
-        else
-            echo "  Error: Unable to determine operator signing key file path" >&2
-            exit 1
+        if [[ ${HELM} == "true" && ${HELM_MANAGED_SECRETS} == "true" ]]; then
+            system_secrets=$(setup_system_secrets "${system}")
+            secrets=$(add_json_to_object "${name}" "${system_secrets}" "${secrets}")
         fi
-    fi
 
-    systems=$(add_json_to_array "${system}" "${systems}")
-done
+        system_config=$(add_json_to_object "system" "${system}" "${system_config}")
+        system_config=$(add_json_to_object "secrets" "${secrets}" "${system_config}")
+
+        systems=$(add_json_to_array "${system_config}" "${systems}")
+
+    done
 
     echo "${systems}"
 }
 
+setup_system_secrets() {
+    local system=$1
+    local secrets="{}"
+
+    system_name=$(jq -r '.name' <<< "${system}")
+    operator_signing_key=$(base64 < $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}"))
+    system_account_creds=$(base64 < $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}"))
+
+    secrets="{\"operator.nk\": \"${operator_signing_key}\", \"sys.creds\": \"${system_account_creds}\"}"
+
+    echo "${secrets}"
+
+}
+
+prepare_helm_values() {
+    local config=$1
+    helix="{}"
+
+    helix=$(add_json_to_object "config" "${config}" "${helix}")
+
+    add_json_to_object "helix" "${helix}" "{}"
+}
+
 prepare_helm_secret_values() {
     systems=$1
+    helix="{}"
     secret_values="{}"
-    nats_systems="{}"
 
+    systems_secrets=$(jq -r 'reduce .[].secrets as $item ({}; . * $item)' <<< "${systems}")
 
-    for system in $(jq -c '.[]' <<< "${systems}"); do
-        system_name=$(jq -r '.name' <<< "${system}")
-        operator_signing_key=$(base64 < $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}"))
-        system_account_creds=$(base64 < $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}"))
+    secret_values=$(add_json_to_object "nats_systems" "${systems_secrets}" "${secret_values}")
 
-        nats_systems=$(add_json_to_object "${system_name}" "{\"operator.nk\": \"${operator_signing_key}\", \"sys.creds\": \"${system_account_creds}\"}" "${nats_systems}")
-    done
+    helix=$(add_json_to_object "secrets" "${secret_values}" "${helix}")
 
-    secret_values=$(add_json_to_object "nats_systems" "${nats_systems}" "${secret_values}")
+    add_json_to_object "helix" "${helix}" "{}"
+}
 
-    echo "${secret_values}"
+setup_registry_credentials() {
+    image_credentials="{}"
+
+    username=$(prompt "Synadia Registry Username")
+    password=$(prompt "Synadia Registry Password" "" "false" "" "true")
+
+    auth_token=$(echo -n "${username}:${password}" | base64)
+
+    response=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Basic ${auth_token}" "${REGISTRY_URL}/v2/")
+
+    if [[ "${response}" != "200" ]]; then
+        echo -e "\n\nInvalid credentials" >&2
+        exit 1
+    else
+        echo -e "\n\nLogin Successful" >&2
+    fi
+
+    image_credentials=$(add_kv_to_object "username" "${username}" "${image_credentials}")
+    image_credentials=$(add_kv_to_object "password" "${password}" "${image_credentials}")
+
+    echo "${image_credentials}"
 }
 
 setup_logging() {
@@ -485,6 +600,7 @@ setup_jobs() {
 
     echo "${jobs}"
 }
+
 echo \
 '
   _  _ ___ _    _____  __   ___ ___  _  _ ___ ___ ___
@@ -512,9 +628,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+registry_credentials="{}"
+if [[ ${HELM} == "true" ]]; then
+    registry_credentials=$(setup_registry_credentials)
+    if [[ $? -ne 0 ]]; then
+        exit $?
+    fi
+fi
+
 mkdir -p "${working_directory}/${nsc_directory}"
 
-public_url=$(prompt "Public URL" "${regex_url}")
+public_url=$(prompt "Helix Public URL" "${regex_url}")
 config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
 
 listen_port=$(prompt "Listen Port" "^[0-9]+$" "true" "8080")
@@ -546,7 +670,13 @@ if [[ $? -ne 0 ]]; then
     exit $?
 fi
 if [[ -n ${nats_systems} ]]; then
-    config=$(add_json_to_object "nats_systems" "${nats_systems}" "${config}")
+    nats_system_list=$(jq -r '[.[] | .system]' <<< "${nats_systems}")
+    config=$(add_json_to_object "nats_systems" "${nats_system_list}" "${config}")
+fi
+
+if [[ ${HELM} == "true" ]]; then
+    config=$(prepare_helm_values "${config}")
+    secrets=$(prepare_helm_secret_values "${nats_systems}")
 fi
 
 if [[ ${ADVANCED} == "true" ]]; then
@@ -570,8 +700,8 @@ if [[ ${ADVANCED} == "true" ]]; then
     fi
 fi
 
-if [[ ${HELM} == "true" && ${HELM_MANAGED_SECRETS} == "true" ]]; then
-    secrets=$(prepare_helm_secret_values "${nats_systems}")
+if [[ "${registry_credentials}" != "{}" ]]; then
+    secrets=$(add_json_to_object "imageCredentials" "${registry_credentials}" "${secrets}")
 fi
 
 echo "${config}" |jq
@@ -600,4 +730,19 @@ if [[ ${secrets} != "{}" ]]; then
         fi
         echo "${secrets}" |jq > "${secrets_file}"
     fi
+fi
+
+if [[ ${HELM} == "true" ]]; then
+    echo \
+'
+
+ _  _ ___ _    _____  __  ___ _  _ ___ _____ _   _    _    
+| || | __| |  |_ _\ \/ / |_ _| \| / __|_   _/_\ | |  | |   
+| __ | _|| |__ | | >  <   | || .` \__ \ | |/ _ \| |__| |__ 
+|_||_|___|____|___/_/\_\ |___|_|\_|___/ |_/_/ \_\____|____|
+
+'
+
+    echo "helm repo add synadia https://connecteverything.github.io/helm-charts"
+    echo "helm upgrade --install helix -n helix --create-namespace -f "${config_file}" -f "${secrets_file}" synadia/helix"
 fi

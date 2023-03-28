@@ -8,23 +8,23 @@ Deployment Methods:
 
 ## Config Generation
 
-The `generate-config.sh` script can do the heavy lifting to populate values for your Helix deployment.
+The `generate-config.sh` script can do much of the heavy lifting to populate values for your Helix deployment.
 
-This is intended to be run in an existing NSC environment. The script can assist in setting up a fresh NSC environment, but it attempts to pull necessary creds and signing keys from your current environment.
+This script is intended to be run in a provisioned NSC environment. It can assist in setting up NSC from scratch, but always first attempts to pull creds and signing keys from an existing configuration.
 
 Most prompts will provide a default value in parenthesis. Empty input will select the default value.
 
-The `Encryption Key URL` supports AWS KMS, Azure KeyVault, GCP Cloud KMS, Hashicorp Vault, and base64 formatted links.
+The `Encryption Key URL` supports AWS KMS, Azure KeyVault, GCP Cloud KMS, Hashicorp Vault, and base64 formatted URLs.
 
 ## Helm
 
 ### Generate Helix Configuration
 
-The `--helm` flag will prompt the script to generate two Helm values files.
+The `--helm` flag will prompt the script to generate two Helm values files
 
-`helix.json` will contain the Helix configuration file, formatted as Helm values.
+`helix.json` will contain the Helix configuration file, formatted as Helm values
 
-`helix-secrets.json` will contain sensitive Helm values used for populating Kubernetes secrets.
+`helix-secrets.json` will contain sensitive Helm values for populating Kubernetes secrets
 
 ```
 ./generate-config.sh --helm
@@ -114,7 +114,7 @@ Config File Path (/helix-alpha/helix-secrets.json):
 
 ### Chart Values
 
-Further details in the [values.yaml](https://github.com/ConnectEverything/helm-charts/blob/main/charts/helix/values.yaml)
+Details in the [values.yaml](https://github.com/ConnectEverything/helm-charts/blob/main/charts/helix/values.yaml)
 
 ### Deploy the Helm Chart
 
@@ -122,6 +122,13 @@ Further details in the [values.yaml](https://github.com/ConnectEverything/helm-c
 helm repo add synadia https://connecteverything.github.io/helm-charts
 helm repo update
 helm upgrade --install helix -n helix --create-namespace -f helix.json -f helix-secrets.json synadia/helix
+```
+
+### Login Details
+
+On first run, login credentials will be visible in the logs
+```
+kubectl logs -n helix deployment/helix
 ```
 
 ### (Optional) Kubernetes Ingress
@@ -160,7 +167,7 @@ helm uninstall -n helix helix
 
 ### Generate Helix Configuration
 
-This script will create and populate the `conf` directory with the Helix config and NATS system credentials and signing keys.
+This process will create and populate the `conf` directory with Helix config and NATS system credentials and signing keys.
 
 ```
 ./generate-config.sh

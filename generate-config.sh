@@ -18,7 +18,10 @@ config={}
 secrets={}
 
 working_directory="$(pwd)"
-nsc_directory="conf/helix/nsc"
+config_directory="conf/helix"
+config_file_name="helix.json"
+secrets_file_name="helix-secrets.json"
+nsc_directory="${config_directory}/nsc"
 
 check_dependencies() {
     bins=(
@@ -171,19 +174,17 @@ nsc_table_to_json() {
       obj={}
       i=1
 
-      setting=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }')
-      if [[ "${setting}" =~ ^$|^\+- ]]; then continue; fi
+      setting=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }' | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//')
+      if [[ "${setting}" =~ ^\+- || "${setting}" =~ ^$ ]]; then continue; fi
 
       IFS='\|'; for key in ${keys}; do
-        val=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }' | sed 's/^[[:blank:]]\+//;s/[[:blank:]]\+$//')
+        val=$(echo "${line}" | awk -F '|' -v i="${i}" '{ print $i }' | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//')
         if [[ "${command}" =~ ^env && ${i} -eq 1 ]]; then val=$(echo ${val} | tr -d '[:blank:]'); fi
 
         if [[ "${val}" == "*" ]]; then
           val="true"
         elif [[ "${val}" =~ ^$|^No$ ]]; then
           val="false"
-        elif [[ "${val}" =~ ^Ifset ]];  then
-          val=""
         fi
 
         if [[ "${header}" == "Keys" && "${key}" == "Key" ]]; then
@@ -463,7 +464,7 @@ setup_nats_systems() {
             fi
         fi
 
-        if [[ ${HELM} == "true" && ${HELM_MANAGED_SECRETS} == "true" ]]; then
+        if [[ "${HELM}" == "true" && ${HELM_MANAGED_SECRETS} == "true" ]]; then
             system_secrets=$(setup_system_secrets "${system}")
             secrets=$(add_json_to_object "${name}" "${system_secrets}" "${secrets}")
         fi
@@ -629,7 +630,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 registry_credentials="{}"
-if [[ ${HELM} == "true" ]]; then
+if [[ "${HELM}" == "true" ]]; then
     registry_credentials=$(setup_registry_credentials)
     if [[ $? -ne 0 ]]; then
         exit $?
@@ -658,7 +659,7 @@ if [[ -n "${encryption_key}" ]]; then
     config=$(add_kv_to_object "encryption_key" "${encryption_key}" "${config}")
 fi
 
-if [[ ${HELM} == "true" ]]; then
+if [[ "${HELM}" == "true" ]]; then
     response=$(prompt "Would you like the Helm chart to manage NATS System Credentials?" "${regex_yn}" "true" "Yes")
     if [[ "${response}" =~ ^[nN] ]]; then
         HELM_MANAGED_SECRETS="false"
@@ -674,12 +675,12 @@ if [[ -n ${nats_systems} ]]; then
     config=$(add_json_to_object "nats_systems" "${nats_system_list}" "${config}")
 fi
 
-if [[ ${HELM} == "true" ]]; then
+if [[ "${HELM}" == "true" ]]; then
     config=$(prepare_helm_values "${config}")
     secrets=$(prepare_helm_secret_values "${nats_systems}")
 fi
 
-if [[ ${ADVANCED} == "true" ]]; then
+if [[ "${ADVANCED}" == "true" ]]; then
     jobs=$(setup_jobs)
     if [[ $? -ne 0 ]]; then
         exit $?
@@ -689,7 +690,7 @@ if [[ ${ADVANCED} == "true" ]]; then
     fi
 fi
 
-if [[ ${ADVANCED} == "true" ]]; then
+if [[ "${ADVANCED}" == "true" ]]; then
     logging=$(setup_logging)
     if [[ $? -ne 0 ]]; then
         exit $?
@@ -706,9 +707,14 @@ fi
 
 echo "${config}" |jq
 
+config_path="${working_directory}/${config_directory}"
+if [[ "${HELM}" == "true" ]]; then
+  config_path="${working_directory}"
+fi
+
 response=$(prompt "Write config to file?" "${regex_yn}" "true" "Yes")
 if [[ "${response}" =~ ^[yY] ]]; then
-    config_file=$(prompt "Config File Path" "" "true" "helix.json")
+    config_file=$(prompt "Config File Path" "" "true" "${config_path}/${config_file_name}")
     if [[ -f "${config_file}" ]]; then
         response=$(prompt "File exists, overwrite?" "${regex_yn}" "true" "No")
         if [[ ! "${response}" =~ ^[yY] ]]; then
@@ -718,11 +724,11 @@ if [[ "${response}" =~ ^[yY] ]]; then
     echo "${config}" |jq > "${config_file}"
 fi
 
-if [[ ${secrets} != "{}" ]]; then
+if [[ "${secrets}" != "{}" ]]; then
     response=$(prompt "Write Helm secrets to file?" "${regex_yn}" "true" "Yes")
     if [[ "${response}" =~ ^[yY] ]]; then
-        secrets_file=$(prompt "Config File Path" "" "true" "helix-secrets.json")
-        if [[ -f "${config_file}" ]]; then
+      secrets_file=$(prompt "Config File Path" "" "true" "${config_path}/${secrets_file_name}")
+        if [[ -f "${secrets_file}" ]]; then
             response=$(prompt "File exists, overwrite?" "${regex_yn}" "true" "No")
             if [[ ! "${response}" =~ ^[yY] ]]; then
                 exit 0
@@ -732,7 +738,7 @@ if [[ ${secrets} != "{}" ]]; then
     fi
 fi
 
-if [[ ${HELM} == "true" ]]; then
+if [[ "${HELM}" == "true" ]]; then
     echo \
 '
 
@@ -743,6 +749,13 @@ if [[ ${HELM} == "true" ]]; then
 
 '
 
-    echo "helm repo add synadia https://connecteverything.github.io/helm-charts"
-    echo "helm upgrade --install helix -n helix --create-namespace -f "${config_file}" -f "${secrets_file}" synadia/helix"
+echo "\
+helm repo add synadia https://connecteverything.github.io/helm-charts
+helm repo update
+helm upgrade --install helix -n helix --create-namespace\
+ -f $([[ "${config_file}" == "$(pwd)/${config_file_name}" ]] && echo "${config_file_name}" || echo ${config_file})\
+ -f $([[ "${secrets_file}" == "$(pwd)/${secrets_file_name}" ]] && echo "${secrets_file_name}" || echo ${secrets_file})\
+ synadia/helix
+"
+
 fi

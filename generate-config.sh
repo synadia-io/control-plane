@@ -164,9 +164,9 @@ nsc_table_to_json() {
       filtered+="\n"
     done <<< "${input}"
 
-    header=$(printf "${filtered}" | sed -n '2p' |awk '{ print $2 }')
-    keys=$(printf "${filtered}" | sed -n '4p' |tr -d '[:blank:]' |sed 's/|$//;s/^|//')
-    values=$(printf "${filtered}" |sed -n '6,$p' |tac | sed '1d;s/|$//;s/^|//')
+    header=$(printf "${filtered}" | sed -n '2p' | awk '{ print $2 }')
+    keys=$(printf "${filtered}" | sed -n '4p' | tr -d '[:blank:]' | sed 's/|$//;s/^|//')
+    values=$(printf "${filtered}" | sed -n '6,$p' | tac | sed '1d;s/|$//;s/^|//')
 
     json=[]
 
@@ -271,7 +271,7 @@ setup_nsc() {
               service_urls=$(nsc describe operator -n "${operator}" -J | jq -r '.nats.operator_service_urls[0] | if . == null then "" else . end')
 
               if [[ "${account_server}" == "" ]]; then nsc edit operator --account-jwt-server-url "${account_server_url}"; fi
-              if [[ "${service_urls}" == "" ]]; then nsc edit operator --service-url "${server_url}"; fi
+              if [[ "${service_urls}" == "" || "${service_urls}" == "nats://localhost:4222" ]]; then nsc edit operator --service-url "${server_url}"; fi
             fi
         fi
     fi
@@ -487,7 +487,8 @@ setup_system_secrets() {
     operator_signing_key=$(base64 < $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}"))
     system_account_creds=$(base64 < $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}"))
 
-    secrets="{\"operator.nk\": \"${operator_signing_key}\", \"sys.creds\": \"${system_account_creds}\"}"
+    secrets=$(add_kv_to_object "operator.nk" "${operator_signing_key}" "${secrets}")
+    secrets=$(add_kv_to_object "sys.creds" "${system_account_creds}" "${secrets}")
 
     echo "${secrets}"
 
@@ -642,11 +643,11 @@ mkdir -p "${working_directory}/${nsc_directory}"
 public_url=$(prompt "Helix Public URL" "${regex_url}")
 config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
 
-listen_port=$(prompt "Listen Port" "^[0-9]+$" "true" "8080")
-config=$(add_kv_to_object "http_public_addr" ":${listen_port}" "${config}")
 
 
 if [[ ${ADVANCED} == "true" ]]; then
+    listen_port=$(prompt "Listen Port" "^[0-9]+$" "true" "8080")
+    config=$(add_kv_to_object "http_public_addr" ":${listen_port}" "${config}")
     response=$(prompt "Would you like to expose metrics?" "${regex_yn}" "true" "No")
     if [[ "${response}" =~ ^[yY] ]]; then
         metrics_port=$(prompt "Metrics Port" "^[0-9]+$" "true" "7777")
@@ -705,7 +706,7 @@ if [[ "${registry_credentials}" != "{}" ]]; then
     secrets=$(add_json_to_object "imageCredentials" "${registry_credentials}" "${secrets}")
 fi
 
-echo "${config}" |jq
+echo "${config}" | jq
 
 config_path="${working_directory}/${config_directory}"
 if [[ "${HELM}" == "true" ]]; then
@@ -721,7 +722,7 @@ if [[ "${response}" =~ ^[yY] ]]; then
             exit 0
         fi
     fi
-    echo "${config}" |jq > "${config_file}"
+    echo "${config}" | jq > "${config_file}"
 fi
 
 if [[ "${secrets}" != "{}" ]]; then
@@ -734,7 +735,7 @@ if [[ "${secrets}" != "{}" ]]; then
                 exit 0
             fi
         fi
-        echo "${secrets}" |jq > "${secrets_file}"
+        echo "${secrets}" | jq > "${secrets_file}"
     fi
 fi
 

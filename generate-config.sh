@@ -484,8 +484,8 @@ setup_system_secrets() {
     local secrets="{}"
 
     system_name=$(jq -r '.name' <<< "${system}")
-    operator_signing_key=$(base64 < $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}"))
-    system_account_creds=$(base64 < $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}"))
+    operator_signing_key=$(cat $(pwd)$(jq -r '.operator_signing_key_file' <<< "${system}") | base64 | tr -d '\n')
+    system_account_creds=$(cat $(pwd)$(jq -r '.system_account_creds_file' <<< "${system}") | base64 | tr -d '\n')
 
     secrets=$(add_kv_to_object "operator.nk" "${operator_signing_key}" "${secrets}")
     secrets=$(add_kv_to_object "sys.creds" "${system_account_creds}" "${secrets}")
@@ -523,7 +523,7 @@ setup_registry_credentials() {
     username=$(prompt "Synadia Registry Username")
     password=$(prompt "Synadia Registry Password" "" "false" "" "true")
 
-    auth_token=$(echo -n "${username}:${password}" | base64)
+    auth_token=$(echo -n "${username}:${password}" | base64 | tr -d '\n')
 
     response=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Basic ${auth_token}" "${REGISTRY_URL}/v2/")
 

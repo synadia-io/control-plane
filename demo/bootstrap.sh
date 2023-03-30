@@ -22,39 +22,60 @@ jetstream {
 EOF
 )
 
-RNA_CONFIG=$(cat <<EOF
-{
-  "env": "local",
-  "postgres_url": "postgres://helix:helix@localhost:5432/helix",
-  "prometheus_url": "http://localhost:9090",
-  "logging": {
-    "components": {
-      "auth": {
-        "level": "warn"
-      }
-    }
-  },
-EOF
-)
+RNA_CONFIG="{}"
+
+add_json_to_object() {
+    key="$1"
+    json="$2"
+    object="$3"
+
+    updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" '. + {($key): $json}')
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error adding json to object" >&2
+        echo "${json}" >&2
+        echo "${object}"
+        return 1
+    fi
+
+    echo "${updated}"
+}
+
+add_json_to_array() {
+    value="$1"
+    array="$2"
+
+    updated=$(echo "${array}" | jq --argjson value "$value" '. += [$value]')
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error adding element to array" >&2
+        echo "${array}"
+        return 1
+    fi
+
+    echo "${updated}"
+}
 
 overlay () {
   local RNA_CONFIG="$1"
 
+  OUT_CONFIG="${RNA_CONFIG}"
   OVERLAY_CONFIG=$(cat ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} | jq -e 'if . == {} then null else . end')
 
-  if [[ ${?} -gt 1 ]]; then
+  if [[ $? -gt 1 ]]; then
     echo "Invalid ${OVERLAY_CONFIG_FILE}" >&2
     cleanup
     exit 1
   elif [[ "${OVERLAY_CONFIG}" != "null" ]]; then
     echo -e "Overlaying ${OVERLAY_CONFIG_FILE}" >&2
     OUT_CONFIG=$(echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]')
-    if [[ ${?} -ne 0 ]]; then
+    if [[ $? -ne 0 ]]; then
       echo "Overlay Failed" >&2
       OUT_CONFIG="${RNA_CONFIG}"
     fi
-    echo "${OUT_CONFIG}"
   fi
+
+  echo "${OUT_CONFIG}"
 }
 
 write_config () {
@@ -67,18 +88,19 @@ cleanup () {
   fi
 }
 
-if [[ -d ${CONFIG_DIR} ]] && [[ "${1}" == "-s" ]]; then
+if [[ -d ${CONFIG_DIR} ]]; then NEW_INSTALL="false"; fi
+
+if [[ -f "${CONFIG_DIR}/${RNA_CONFIG_FILE}" ]] && [[ "${1}" == "-s" ]]; then
   echo "Using existing config directory"
-  NEW_INSTALL="false"
   # Apply overlay if present
   if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
     RNA_CONFIG=$(overlay "$(cat "${CONFIG_DIR}/${RNA_CONFIG_FILE}")")
     write_config
   fi
   exit 0
-elif [[ -d ${CONFIG_DIR} ]]; then
+elif [[ -f "${CONFIG_DIR}/${RNA_CONFIG_FILE}" ]]; then
   if [[ "${1}" != "-f" ]]; then
-    echo "Config directory exists"
+    echo "Config exists"
     read -p "Would you like to delete and replace it? (y/N) "
     if ! echo ${REPLY} | grep -q '^[Yy]'; then
       exit 1
@@ -89,7 +111,7 @@ fi
 
 mkdir -p ${CONFIG_DIR}
 
-NATS_SYSTEMS='\n  "nats_systems": ['
+NATS_SYSTEMS="[]"
 for cluster in ${CLUSTERS}; do
   # Create cluster operator
   nsc ${NSC_FLAGS} add operator ${cluster}
@@ -128,15 +150,16 @@ for cluster in ${CLUSTERS}; do
       "account_server_url":        "nats://${cluster}:4222",
       "system_account_creds_file": "${NSC_DIR}/keys/creds/${cluster}/SYS/sys.creds",
       "operator_signing_key_file": "${OPERATOR_KEY_PATH}"
-    },
+    }
 EOF
   )
+
   # Append nats server config to array
-  NATS_SYSTEMS="${NATS_SYSTEMS}\n${NATS_SYSTEM}"
+  NATS_SYSTEMS=$(add_json_to_array "${NATS_SYSTEM}" "${NATS_SYSTEMS}")
 done
 
 # Append nats system array to RNA config
-RNA_CONFIG="${RNA_CONFIG}${NATS_SYSTEMS::-1}]\n}"
+RNA_CONFIG=$(add_json_to_object "nats_systems" "${NATS_SYSTEMS}" "${RNA_CONFIG}")
 
 # Apply overlay if present
 if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
@@ -147,7 +170,7 @@ fi
 write_config
 
 # Fail safely if invalid JSON
-if [[ ${?} -ne 0 ]]; then
+if [[ $? -ne 0 ]]; then
   cleanup
   exit 1
 fi

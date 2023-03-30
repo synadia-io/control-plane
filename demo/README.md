@@ -1,10 +1,10 @@
-# Helix Alpha
+# Helix Beta Demo
 
-Helix is currently in Private Alpha.  If you would like to participate in the Alpha program, please contact `info@synadia.com`
+Helix is currently in Private Beta.  If you would like to participate in the Beta program, please contact `info@synadia.com`
 
 ## Prerequisites
 
-Login to the Helix Alpha docker registry using the credentials that you were given:
+Login to the Helix Beta docker registry using the credentials that you were given:
 
 ```bash
 docker login registry.helix-dev.synadia.io
@@ -40,7 +40,7 @@ The first time that Helix runs, the admin username/password will be visible in t
 docker compose logs helix
 ```
 
-#### Upgrade to a new Alpha version
+#### Upgrade to a new Beta version
 
 ```bash
 docker compose pull

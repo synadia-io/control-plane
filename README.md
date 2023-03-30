@@ -1,6 +1,6 @@
-# Helix Alpha
+# Helix Beta
 
-Helix is currently in Private Alpha.  If you would like to participate in the Alpha program, please contact `info@synadia.com`
+Helix is currently in Private Beta.  If you would like to participate in the Beta program, please contact `info@synadia.com`
 
 Deployment Methods:
 - [Kubernetes via Helm](#helm)
@@ -107,9 +107,9 @@ Add NATS System
   }
 }
 Write config to file? (Yes):
-Config File Path (/helix-alpha/helix.json):
+Config File Path (/helix-beta/helix.json):
 Write Helm secrets to file? (Yes):
-Config File Path (/helix-alpha/helix-secrets.json):
+Config File Path (/helix-beta/helix-secrets.json):
 ```
 
 ### Chart Values
@@ -229,7 +229,7 @@ Add NATS System
   NATS System Name (Empty to proceed):
 
 Write config to file? (Yes):
-Config File Path (/helix-alpha/conf/helix/helix.json):
+Config File Path (/helix-beta/conf/helix/helix.json):
 
 ```
 

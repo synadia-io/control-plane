@@ -1,11 +1,9 @@
 version: '3.9'
 
-name: helix
-
 services:
   helix:
     container_name: helix
-    image: registry.helix-dev.synadia.io/helix:tag-rc
+    image: registry.helix-dev.synadia.io/helix:tag-release
     hostname: helix
     command: ["-c", "/conf/helix/helix.json", "server", "start"]
     volumes:

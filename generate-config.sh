@@ -166,7 +166,7 @@ nsc_table_to_json() {
 
     header=$(printf "${filtered}" | sed -n '2p' | awk '{ print $2 }')
     keys=$(printf "${filtered}" | sed -n '4p' | tr -d '[:blank:]' | sed 's/|$//;s/^|//')
-    values=$(printf "${filtered}" | sed -n '6,$p' | tac | sed '1d;s/|$//;s/^|//')
+    values=$(printf "${filtered}" | sed -n '6,$p' | sed 's/|$//;s/^|//')
 
     json=[]
 

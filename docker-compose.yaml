@@ -3,7 +3,7 @@ version: '3.9'
 services:
   helix:
     container_name: helix
-    image: registry.helix-dev.synadia.io/helix:tag-release
+    image: registry.helix-dev.synadia.io/control-plane:tag-release
     hostname: helix
     command: ["-c", "/conf/helix/helix.json", "server", "start"]
     volumes:
@@ -11,6 +11,7 @@ services:
       - helix-data:/app/data
     ports:
       - 8080:8080
+      - 8443:8443
 
 volumes:
   helix-data: {}

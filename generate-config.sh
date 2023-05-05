@@ -71,14 +71,64 @@ prompt () {
         fi
         echo "Invalid Input" >&2
     done
+
+    if [[ "${password}" == "true" ]]; then
+        echo "" >&2
+    fi
+}
+
+create_object_at_path() {
+    path="$1"
+    object="$2"
+
+    if [[ -n ${path} && "${path}" =~ ^\. ]]; then
+        path=${path#.}
+    fi
+
+    jsonpath=$(echo "${path}" | jq -R 'split(".")')
+
+    type=$(echo "${object}" | jq -r --argjson path "$jsonpath" 'getpath($path) | type')
+    if [[ ${type} == "null" ]]; then
+        parentpath=$(echo "${path}" | awk -F. '{OFS="."; NF--; print}')
+        if [[ -n "${parentpath}" ]]; then
+            parentjsonpath=$(echo "${parentpath}" | jq -R 'split(".")')
+            parenttype=$(echo "${object}" | jq -r --argjson path "$parentjsonpath" 'getpath($path) | type')
+            if [[ ${parenttype} == "null" ]]; then
+                subobject=$(create_object_at_path "${parentpath}" "${object}")
+            fi
+        fi
+        object=$(echo "${object}" | jq --argjson path "$jsonpath" 'setpath($path; {})')
+    elif [[ "${type}" != "object" ]]; then
+        echo "Value at path is not an object" >&2
+        echo "${object}"
+        return 1
+    fi
+
+    echo "${object}"
 }
 
 add_kv_to_object() {
     key="$1"
     value="$2"
     object="$3"
+    path="${4}" # Dot-separated path. Root if not set
 
-    updated=$(echo "${object}" | jq --arg key "$key" --arg value "$value" '. + {($key): $value}')
+    if [[ -n ${path} && "${path}" =~ ^\. ]]; then
+        path=${path#.}
+    fi
+
+    object=$(create_object_at_path "${path}" "${object}")
+    if [[ $? -ne 0 ]]; then
+        echo "${object}"
+        return 1
+    fi
+
+    if [[ -z ${path} ]]; then
+        updated=$(echo "${object}" | jq --arg key "$key" --arg value "$value" '. += {($key): $value}')
+    else
+        jsonpath=$(echo "${path}" | jq -R 'split(".")')
+        updated=$(echo "${object}" | jq --arg key "$key" --arg value "$value" --argjson path "$jsonpath" 'setpath($path; (getpath($path) // {}) + {($key): $value})')
+    fi
 
     if [[ $? -ne 0 ]]; then
         echo "Error adding kv pair to object" >&2
@@ -93,8 +143,26 @@ add_kv_bool_to_object() {
     key="$1"
     value=$2
     object="$3"
+    path="${4}" # Dot-separated path. Root if not set
 
-    updated=$(echo "${object}" | jq --arg key "$key" --argjson value $value '. + {($key): $value}')
+    if [[ -n ${path} && "${path}" =~ ^\. ]]; then
+        path=${path#.}
+    fi
+
+    object=$(create_object_at_path "${path}" "${object}")
+
+    if [[ -z ${path} ]]; then
+        updated=$(echo "${object}" | jq --arg key "$key" --argjson value $value '. += {($key): $value}')
+    else
+        jsonpath=$(echo "${path}" | jq -R 'split(".")')
+        type=$(echo "${object}" | jq -r --argjson path "$jsonpath" 'getpath($path) | type')
+        if [[ "${type}" != "object" ]]; then
+            echo "Value at path is not an object" >&2
+            echo "${object}"
+            return 1
+        fi
+        updated=$(echo "${object}" | jq --arg key "$key" --argjson value $value --argjson path "$jsonpath" 'setpath($path; (getpath($path) // {}) + {($key): $value})')
+    fi
 
     if [[ $? -ne 0 ]]; then
         echo "Error adding kv pair to object" >&2
@@ -109,12 +177,21 @@ add_json_to_object() {
     key="$1"
     json="$2"
     object="$3"
+    path="${4}" # Dot-separated path. Root if not set
 
-    updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" '. + {($key): $json}')
+    if [[ -n ${path} && "${path}" =~ ^\. ]]; then
+        path=${path#.}
+    fi
+
+    if [[ -z ${path} ]]; then
+        updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" '. += {($key): $json}')
+    else
+        jsonpath=$(echo "${path}" | jq -R 'split(".")')
+        updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" --argjson path "$jsonpath" 'setpath($path; (getpath($path) // {}) + {($key): $json})')
+    fi
 
     if [[ $? -ne 0 ]]; then
-        echo "Error adding json to object" >&2
-        echo "${json}" >&2
+        echo "Error adding kv pair to object" >&2
         echo "${object}"
         return 1
     fi
@@ -395,7 +472,7 @@ setup_nsc() {
 }
 
 setup_nats_systems() {
-    local systems="[]"
+    local systems="{}"
 
     while true; do
         echo "Add NATS System" >&2
@@ -410,16 +487,8 @@ setup_nats_systems() {
             break
         fi
 
-        system=$(add_kv_to_object "name" "${name}" "${system}")
-
         urls=$(prompt "  NATS System URLs (Comma delimited)" "${regex_nats_urls}")
-        system=$(add_kv_to_object "urls" "${urls}" "${system}")
-
-        account_server_url=$(prompt "  Account Server URL (Empty for NATS internal resolver)" "" "true")
-        if [[ -z ${account_server_url} ]]; then
-            account_server_url="${urls}"
-        fi
-        system=$(add_kv_to_object "account_server_url" "${account_server_url}" "${system}")
+        system=$(add_kv_to_object "url" "${urls}" "${system}")
 
         mkdir -p "${working_directory}/${nsc_directory}/${name}"
 
@@ -450,7 +519,7 @@ setup_nats_systems() {
             fi
 
             if [[ -f "${working_directory}/${nsc_directory}/${name}/sys.creds" ]]; then
-                system=$(add_kv_to_object "system_account_creds_file" "/${nsc_directory}/${name}/sys.creds" "${system}")
+                system=$(add_kv_to_object "system_user_creds_file" "/${nsc_directory}/${name}/sys.creds" "${system}")
             else
                 echo "  Error: Unable to determine system account credentials file path" >&2
                 exit 1
@@ -462,6 +531,34 @@ setup_nats_systems() {
                 echo "  Error: Unable to determine operator signing key file path" >&2
                 exit 1
             fi
+
+            response=$(prompt "  Setup NATS mTLS?" "${regex_yn}" "true" "No")
+            if [[ "${response}" =~ ^[yY] ]]; then
+                tls_directory="${config_directory}/tls/nats/${name}"
+                mkdir -p  ${tls_directory}
+                cert_file=$(prompt "  Client Certificate File Path" "" "false")
+                while [[ ! -f ${cert_file} ]]; do
+                    echo "  Error: File does not exist: ${cert_file}" >&2
+                    cert_file=$(prompt "  Client Certificate File Path" "" "false")
+                done
+                key_file=$(prompt "  Client Key File Path" "" "false")
+                while [[ ! -f ${key_file} ]]; do
+                    echo "  Error: File does not exist: ${key_file}" >&2
+                    key_file=$(prompt "  Client Key File Path" "" "false")
+                done
+                ca_file=$(prompt "  CA File Path" "" "false")
+                while [[ ! -f ${ca_file} ]]; do
+                    echo "  Error: File does not exist: ${ca_file}" >&2
+                    ca_file=$(prompt "  CA File Path" "" "false")
+                done
+
+                cp "${cert_file}" "${tls_directory}/client.crt"
+                cp "${key_file}" "${tls_directory}/client.key"
+                cp "${ca_file}" "${tls_directory}/ca.crt"
+                system=$(add_kv_to_object "cert_file" "/conf/helix/tls/nats/${name}/client.crt" "${system}" ".tls")
+                system=$(add_kv_to_object "key_file" "/conf/helix/tls/nats/${name}/client.key" "${system}" ".tls")
+                system=$(add_kv_to_object "ca_file" "/conf/helix/tls/nats/${name}/ca.crt" "${system}" ".tls")
+            fi
         fi
 
         if [[ "${HELM}" == "true" && ${HELM_MANAGED_SECRETS} == "true" ]]; then
@@ -472,7 +569,7 @@ setup_nats_systems() {
         system_config=$(add_json_to_object "system" "${system}" "${system_config}")
         system_config=$(add_json_to_object "secrets" "${secrets}" "${system_config}")
 
-        systems=$(add_json_to_array "${system_config}" "${systems}")
+        systems=$(add_json_to_object "${name}" "${system_config}" "${systems}")
 
     done
 
@@ -538,6 +635,58 @@ setup_registry_credentials() {
     image_credentials=$(add_kv_to_object "password" "${password}" "${image_credentials}")
 
     echo "${image_credentials}"
+}
+
+setup_data_sources() {
+    data_sources={}
+
+    response=$(prompt "Use external PostgreSQL?" "${regex_yn}" "true" "No")
+    if [[ "${response}" =~ ^[yY] ]]; then
+        postgres_dsn=$(prompt "PostgreSQL DSN" "" "true")
+        data_sources=$(add_kv_to_object "dsn" "${postgres_dsn}" "${data_sources}" ".postgres")
+    fi
+
+    response=$(prompt "Use external Prometheus?" "${regex_yn}" "true" "No")
+    if [[ "${response}" =~ ^[yY] ]]; then
+        prometheus_url=$(prompt "Prometheus URL" "" "true")
+        data_sources=$(add_kv_to_object "url" "${prometheus_url}" "${data_sources}" ".prometheus")
+        bearer_token=$(prompt "Bearer Token (Optional)" "" "true" "")
+        if [[ -n ${bearer_token} ]]; then
+            data_sources=$(add_kv_to_object "bearer_token" "${bearer_token}" "${data_sources}" ".prometheus")
+        else
+            username=$(prompt "Username (Optional)" "" "true")
+            password=$(prompt "Password (Optional)" "" "false" "" "true")
+            if [[ -n ${username} && -n ${password} ]]; then
+                data_sources=$(add_kv_to_object "username" "${username}" "${data_sources}" ".prometheus.basic_auth")
+                data_sources=$(add_kv_to_object "password" "${password}" "${data_sources}" ".prometheus.basic_auth")
+            fi
+        fi
+        response=$(prompt "Setup Prometheus mTLS?" "${regex_yn}" "true" "No")
+        if [[ "${response}" =~ ^[yY] ]]; then
+        cert_file=$(prompt "Client Certificate File Path" "" "false")
+        while [[ ! -f ${cert_file} ]]; do
+            echo "Error: File does not exist: ${cert_file}" >&2
+            cert_file=$(prompt "Client Certificate File Path" "" "false")
+        done
+        key_file=$(prompt "Client Key File Path" "" "false")
+        while [[ ! -f ${key_file} ]]; do
+            echo "Error: File does not exist: ${key_file}" >&2
+            key_file=$(prompt "Client Key File Path" "" "false")
+        done
+        ca_file=$(prompt "CA File Path" "" "false")
+        while [[ ! -f ${ca_file} ]]; do
+            echo "Error: File does not exist: ${ca_file}" >&2
+            ca_file=$(prompt "CA File Path" "" "false")
+        done
+
+        cp "${cert_file}" "${tls_directory}/client.crt"
+        cp "${key_file}" "${tls_directory}/client.key"
+        cp "${ca_file}" "${tls_directory}/ca.crt"
+        data_sources=$(add_kv_to_object "cert_file" "/conf/helix/tls/prometheus/client.crt" "${data_sources}" ".prometheus.tls")
+        data_sources=$(add_kv_to_object "key_file" "/conf/helix/tls/prometheus/client.key" "${data_sources}" ".prometheus.tls")
+        data_sources=$(add_kv_to_object "ca_file" "/conf/helix/tls/prometheus/ca.crt" "${data_sources}" ".prometheus.tls")
+        fi
+    fi
 }
 
 setup_logging() {
@@ -640,24 +789,45 @@ fi
 
 mkdir -p "${working_directory}/${nsc_directory}"
 
-public_url=$(prompt "Helix Public URL" "${regex_url}")
-config=$(add_kv_to_object "public_url" "${public_url}" "${config}")
+public_url=$(prompt "Helix Public URL" "${regex_url}" "true" "http://localhost:8080")
+config=$(add_kv_to_object "url" "${public_url}" "${config}" ".server")
 
+response=$(prompt "Setup TLS?" "${regex_yn}" "true" "No")
+if [[ "${response}" =~ ^[yY] ]]; then
+    tls_directory="${config_directory}/tls"
+    mkdir -p  ${tls_directory}
 
+    cert_file=$(prompt "Certificate File Path" "" "false")
+    while [[ ! -f ${cert_file} ]]; do
+        echo "Error: File does not exist: ${cert_file}" >&2
+        cert_file=$(prompt "Certificate File Path" "" "false")
+    done
+    key_file=$(prompt "Key File Path" "" "false")
+    while [[ ! -f ${key_file} ]]; do
+        echo "Error: File does not exist: ${key_file}" >&2
+        key_file=$(prompt "Key File Path" "" "false")
+    done
+
+    cp "${cert_file}" "${tls_directory}/server.crt"
+    cp "${key_file}" "${tls_directory}/server.key"
+    config=$(add_kv_to_object "cert_file" "/conf/helix/tls/server.crt" "${config}" ".server.tls")
+    config=$(add_kv_to_object "key_file" "/conf/helix/tls/server.key" "${config}" ".server.tls")
+fi
 
 if [[ ${ADVANCED} == "true" ]]; then
-    listen_port=$(prompt "Listen Port" "^[0-9]+$" "true" "8080")
-    config=$(add_kv_to_object "http_public_addr" ":${listen_port}" "${config}")
-    response=$(prompt "Would you like to expose metrics?" "${regex_yn}" "true" "No")
-    if [[ "${response}" =~ ^[yY] ]]; then
-        metrics_port=$(prompt "Metrics Port" "^[0-9]+$" "true" "7777")
-        config=$(add_kv_to_object "http_metrics_addr" ":${metrics_port}" "${config}")
+    http_listen_port=$(prompt "HTTP Listen Port" "^[0-9]+$" "true" "8080")
+    config=$(add_kv_to_object "http_addr" ":${http_listen_port}" "${config}" ".server")
+    https_listen_port=$(prompt "HTTPS Listen Port" "^[0-9]+$" "true" "8443")
+    config=$(add_kv_to_object "https_addr" ":${https_listen_port}" "${config}" ".server")
+    mtls_enabled=$(prompt "Disable Internal mTLS?" "${regex_yn}" "true" "No")
+    if [[ "${mtls_enabled}" =~ ^[nN] ]]; then
+        config=$(add_kv_bool_to_object "mtls_enabled" false "${config}" ".internal_components")
     fi
 fi
 
 encryption_key=$(prompt "Encryption Key URL (Empty to generate local key)" ${regex_keys} "true")
 if [[ -n "${encryption_key}" ]]; then
-    config=$(add_kv_to_object "encryption_key" "${encryption_key}" "${config}")
+    config=$(add_kv_to_object "key_url" "${encryption_key}" "${config}" ".kms")
 fi
 
 if [[ "${HELM}" == "true" ]]; then
@@ -667,13 +837,18 @@ if [[ "${HELM}" == "true" ]]; then
     fi
 fi
 
+data_sources=$(setup_data_sources)
+if [[ -n ${data_sources} ]]; then
+    config=$(add_json_to_object "data_sources" "${data_sources}" "${config}")
+fi
+
 nats_systems=$(setup_nats_systems)
 if [[ $? -ne 0 ]]; then
     exit $?
 fi
 if [[ -n ${nats_systems} ]]; then
-    nats_system_list=$(jq -r '[.[] | .system]' <<< "${nats_systems}")
-    config=$(add_json_to_object "nats_systems" "${nats_system_list}" "${config}")
+    nats_system_list=$(jq -r 'map_values(.system)' <<< "${nats_systems}")
+    config=$(add_json_to_object "systems" "${nats_system_list}" "${config}")
 fi
 
 if [[ "${HELM}" == "true" ]]; then

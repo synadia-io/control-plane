@@ -150,17 +150,15 @@ add_kv_bool_to_object() {
     fi
 
     object=$(create_object_at_path "${path}" "${object}")
+    if [[ $? -ne 0 ]]; then
+        echo "${object}"
+        return 1
+    fi
 
     if [[ -z ${path} ]]; then
         updated=$(echo "${object}" | jq --arg key "$key" --argjson value $value '. += {($key): $value}')
     else
         jsonpath=$(echo "${path}" | jq -R 'split(".")')
-        type=$(echo "${object}" | jq -r --argjson path "$jsonpath" 'getpath($path) | type')
-        if [[ "${type}" != "object" ]]; then
-            echo "Value at path is not an object" >&2
-            echo "${object}"
-            return 1
-        fi
         updated=$(echo "${object}" | jq --arg key "$key" --argjson value $value --argjson path "$jsonpath" 'setpath($path; (getpath($path) // {}) + {($key): $value})')
     fi
 
@@ -181,6 +179,12 @@ add_json_to_object() {
 
     if [[ -n ${path} && "${path}" =~ ^\. ]]; then
         path=${path#.}
+    fi
+
+    object=$(create_object_at_path "${path}" "${object}")
+    if [[ $? -ne 0 ]]; then
+        echo "${object}"
+        return 1
     fi
 
     if [[ -z ${path} ]]; then

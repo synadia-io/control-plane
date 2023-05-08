@@ -635,6 +635,28 @@ setup_registry_credentials() {
     echo "${image_credentials}"
 }
 
+setup_ingress() {
+    url="$1"
+    ingress="{}"
+
+    hostname=$(echo ${url} | awk -F[/:] '{print $4}')
+
+    response=$(prompt "Use Kubernetes Ingress?" "${regex_yn}" "true" "No")
+    if [[ "${response}" =~ ^[yY] ]]; then
+        ingress=$(add_kv_bool_to_object "enabled" true "${ingress}")
+        hostname=$(prompt "Ingress Hostname" "" "true" "${hostname}")
+        hostname="[\"${hostname}\"]"
+        ingress=$(add_json_to_object "hosts" "${hostname}" "${ingress}")
+        ingress_class=$(prompt "Ingress Class" "" "true" "nginx")
+        secret_name=$(prompt "Kubernetes Secret Name for TLS Certs (Optional)" "" "true")
+        if [[ -n "${secret_name}" ]]; then
+            ingress=$(add_kv_to_object "tlsSecretName" "${secret_name}" "${ingress}")
+        fi
+    fi
+
+    echo "${ingress}"
+}
+
 setup_data_sources() {
     data_sources={}
 
@@ -794,11 +816,10 @@ prepare_helm_secret_values() {
 echo \
 '
 
-   ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___    ___ ___  _  _ ___ ___ ___ 
-  / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __|  / __/ _ \| \| | __|_ _/ __|
- | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _|  | (_| (_) | .` | _| | | (_ |
-  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___|  \___\___/|_|\_|_| |___\___|
-                                                                                             
+  _____   ___  _   _   ___ ___   _      ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___ 
+ / __\ \ / / \| | /_\ |   \_ _| /_\    / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __|
+ \__ \\ V /| .` |/ _ \| |) | | / _ \  | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _| 
+ |___/ |_| |_|\_/_/ \_\___/___/_/ \_\  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___|
 '
 
 check_dependencies
@@ -820,16 +841,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+public_url=$(prompt "Control-Plane Public URL" "${regex_url}" "true" "http://localhost:8080")
+config=$(add_kv_to_object "url" "${public_url}" "${config}" ".server")
+
 registry_credentials="{}"
-if [[ "${HELM}" == "ttrue" ]]; then
+ingress="{}"
+if [[ "${HELM}" == "true" ]]; then
     registry_credentials=$(setup_registry_credentials)
     if [[ $? -ne 0 ]]; then
         exit $?
     fi
+    ingress=$(setup_ingress "${public_url}")
 fi
-
-public_url=$(prompt "Control-Plane Public URL" "${regex_url}" "true" "http://localhost:8080")
-config=$(add_kv_to_object "url" "${public_url}" "${config}" ".server")
 
 response=$(prompt "Enable HTTPS?" "${regex_yn}" "true" "No")
 if [[ "${response}" =~ ^[yY] ]]; then
@@ -934,7 +957,11 @@ if [[ "${ADVANCED}" == "true" ]]; then
 fi
 
 if [[ "${registry_credentials}" != "{}" ]]; then
-    secrets=$(add_json_to_object "imageCredentials" "${registry_credentials}" "${secrets}")
+    secrets=$(add_json_to_object "imagePullSecret" "${registry_credentials}" "${secrets}")
+fi
+
+if [[ "${ingress}" != "{}" ]]; then
+    config=$(add_json_to_object "ingress" "${ingress}" "${config}")
 fi
 
 echo "${config}" | jq

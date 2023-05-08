@@ -7,7 +7,7 @@ services:
     hostname: helix
     command: ["-c", "/conf/helix/helix.json", "server", "start"]
     volumes:
-      - ./conf:/conf
+      - ./conf:/etc/syn-cp
       - helix-data:/app/data
     ports:
       - 8080:8080

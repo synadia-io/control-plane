@@ -1,14 +1,14 @@
 version: '3.9'
 
 services:
-  helix:
-    container_name: helix
-    image: registry.helix-dev.synadia.io/control-plane:tag-release
-    hostname: helix
-    command: ["-c", "/conf/helix/rna.cue", "server", "start"]
+  control-plane:
+    container_name: control-plane
+    image: registry.helix-dev.synadia.io/control-plane:tag-rc
+    hostname: control-plane
+    command: ["-c", "/conf/syn-cp.cue", "server", "start"]
     volumes:
       - conf:/conf
-      - helix-data:/app/data
+      - control-plane-data:/app/data
     ports:
       - 8080:8080
     depends_on:
@@ -24,13 +24,13 @@ services:
     volumes:
       - conf:/conf
       - ./bootstrap.sh:/setup/bootstrap.sh:ro
-      - ./helix.json:/setup/helix.json:ro
+      - ./syn-cp.json:/setup/syn-cp.json:ro
 
   nats-a:
-    container_name: helix-nats-a
+    container_name: control-plane-nats-a
     image: nats:2.9.16-alpine
     hostname: nats
-    command: ["nats-server", "--config", "/conf/helix/nats-a/nats-server.conf"]
+    command: ["nats-server", "--config", "/conf/nats-a/nats-server.conf"]
     volumes:
       - conf:/conf
       - nats-a:/data
@@ -41,10 +41,10 @@ services:
         condition: service_completed_successfully
 
   nats-b:
-    container_name: helix-nats-b
+    container_name: control-plane-nats-b
     image: nats:2.9.16-alpine
     hostname: nats
-    command: ["nats-server", "--config", "/conf/helix/nats-b/nats-server.conf"]
+    command: ["nats-server", "--config", "/conf/nats-b/nats-server.conf"]
     volumes:
       - conf:/conf
       - nats-b:/data
@@ -55,10 +55,10 @@ services:
         condition: service_completed_successfully
 
   nats-c:
-    container_name: helix-nats-c
+    container_name: control-plane-nats-c
     image: nats:2.9.16-alpine
     hostname: nats
-    command: ["nats-server", "--config", "/conf/helix/nats-c/nats-server.conf"]
+    command: ["nats-server", "--config", "/conf/nats-c/nats-server.conf"]
     volumes:
       - conf:/conf
       - nats-c:/data
@@ -73,4 +73,4 @@ volumes:
   nats-a: {}
   nats-b: {}
   nats-c: {}
-  helix-data: {}
+  control-plane-data: {}

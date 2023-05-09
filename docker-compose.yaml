@@ -1,17 +1,17 @@
 version: '3.9'
 
 services:
-  helix:
-    container_name: helix
-    image: registry.helix-dev.synadia.io/control-plane:tag-release
-    hostname: helix
-    command: ["-c", "/conf/helix/helix.json", "server", "start"]
+  control-plane:
+    container_name: control-plane
+    image: registry.helix-dev.synadia.io/control-plane:tag-rc
+    hostname: control-plane
+    command: ["-c", "/etc/syn-cp/syn-cp.json", "server", "start"]
     volumes:
-      - ./conf:/etc/syn-cp
-      - helix-data:/app/data
+      - ./conf/syn-cp:/etc/syn-cp
+      - control-plane-data:/app/data
     ports:
       - 8080:8080
       - 8443:8443
 
 volumes:
-  helix-data: {}
+  control-plane-data: {}

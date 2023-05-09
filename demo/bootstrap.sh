@@ -2,12 +2,12 @@
 
 cd "/conf"
 
-OVERLAY_CONFIG_FILE="helix.json"
-RNA_CONFIG_FILE="rna.cue"
+OVERLAY_CONFIG_FILE="syn-cp.json"
+CONFIG_FILE="syn-cp.cue"
 NEW_INSTALL="true"
 
 CLUSTERS="nats-a nats-b nats-c"
-CONFIG_DIR="/conf/helix"
+CONFIG_DIR="/conf"
 SETUP_DIR="/setup"
 NSC_DIR=${CONFIG_DIR}/nsc
 NSC_FLAGS="--config-dir=${NSC_DIR} --data-dir=${NSC_DIR}/store --keystore-dir=${NSC_DIR}/keys"
@@ -22,18 +22,72 @@ jetstream {
 EOF
 )
 
-RNA_CONFIG="{}"
+CONFIG="{}"
+
+create_object_at_path() {
+    path="$1"
+    object="$2"
+
+    if [ -n "$path" ]; then
+      case "$path" in
+        .*)
+          path=$(echo "$path" | sed 's/^\.//')
+        ;;
+      esac
+    fi
+
+    jsonpath=$(echo "${path}" | jq -R 'split(".")')
+
+    type=$(echo "${object}" | jq -r --argjson path "$jsonpath" 'getpath($path) | type')
+
+    if [ "${type}" = "null" ]; then
+        parentpath=$(echo "${path}" | awk -F. '{OFS="."; NF--; print}')
+        if [ -n "${parentpath}" ]; then
+            parentjsonpath=$(echo "${parentpath}" | jq -R 'split(".")')
+            parenttype=$(echo "${object}" | jq -r --argjson path "$parentjsonpath" 'getpath($path) | type')
+            if [ ${parenttype} = "null" ]; then
+                subobject=$(create_object_at_path "${parentpath}" "${object}")
+            fi
+        fi
+        object=$(echo "${object}" | jq --argjson path "$jsonpath" 'setpath($path; {})')
+    elif [ "${type}" != "object" ]; then
+        echo "Value at path is not an object" >&2
+        echo "${object}"
+        return 1
+    fi
+
+    echo "${object}"
+}
 
 add_json_to_object() {
     key="$1"
     json="$2"
     object="$3"
+    path="${4}" # Dot-separated path. Root if not set
 
-    updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" '. + {($key): $json}')
+    if [ -n "$path" ]; then
+      case "$path" in
+        .*)
+          path=$(echo "$path" | sed 's/^\.//')
+        ;;
+      esac
+    fi
+
+    object=$(create_object_at_path "${path}" "${object}")
+    if [[ $? -ne 0 ]]; then
+        echo "${object}"
+        return 1
+    fi
+
+    if [[ -z ${path} ]]; then
+        updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" '. += {($key): $json}')
+    else
+        jsonpath=$(echo "${path}" | jq -R 'split(".")')
+        updated=$(echo "${object}" | jq --arg key "$key" --argjson json "$json" --argjson path "$jsonpath" 'setpath($path; (getpath($path) // {}) + {($key): $json})')
+    fi
 
     if [[ $? -ne 0 ]]; then
-        echo "Error adding json to object" >&2
-        echo "${json}" >&2
+        echo "Error adding kv pair to object" >&2
         echo "${object}"
         return 1
     fi
@@ -57,9 +111,9 @@ add_json_to_array() {
 }
 
 overlay () {
-  local RNA_CONFIG="$1"
+  local CONFIG="$1"
 
-  OUT_CONFIG="${RNA_CONFIG}"
+  OUT_CONFIG="${CONFIG}"
   OVERLAY_CONFIG=$(cat ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} | jq -e 'if . == {} then null else . end')
 
   if [[ $? -gt 1 ]]; then
@@ -68,10 +122,10 @@ overlay () {
     exit 1
   elif [[ "${OVERLAY_CONFIG}" != "null" ]]; then
     echo -e "Overlaying ${OVERLAY_CONFIG_FILE}" >&2
-    OUT_CONFIG=$(echo -e "${RNA_CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]')
+    OUT_CONFIG=$(echo -e "${CONFIG}" "${OVERLAY_CONFIG}" | jq -s '.[0] * .[1]')
     if [[ $? -ne 0 ]]; then
       echo "Overlay Failed" >&2
-      OUT_CONFIG="${RNA_CONFIG}"
+      OUT_CONFIG="${CONFIG}"
     fi
   fi
 
@@ -79,26 +133,26 @@ overlay () {
 }
 
 write_config () {
-  echo -e "${RNA_CONFIG}" | jq > "${CONFIG_DIR}/${RNA_CONFIG_FILE}"
+  echo -e "${CONFIG}" | jq > "${CONFIG_DIR}/${CONFIG_FILE}"
 }
 
 cleanup () {
-  if [[ ${NEW_INSTALL} == "true" ]]; then
+  if [ ${NEW_INSTALL} = "true" ]; then
     rm -rf ${CONFIG_DIR}
   fi
 }
 
 if [[ -d ${CONFIG_DIR} ]]; then NEW_INSTALL="false"; fi
 
-if [[ -f "${CONFIG_DIR}/${RNA_CONFIG_FILE}" ]] && [[ "${1}" == "-s" ]]; then
+if [ -f "${CONFIG_DIR}/${CONFIG_FILE}" ] && [ "${1}" = "-s" ]; then
   echo "Using existing config directory"
   # Apply overlay if present
   if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
-    RNA_CONFIG=$(overlay "$(cat "${CONFIG_DIR}/${RNA_CONFIG_FILE}")")
+    CONFIG=$(overlay "$(cat "${CONFIG_DIR}/${CONFIG_FILE}")")
     write_config
   fi
   exit 0
-elif [[ -f "${CONFIG_DIR}/${RNA_CONFIG_FILE}" ]]; then
+elif [[ -f "${CONFIG_DIR}/${CONFIG_FILE}" ]]; then
   if [[ "${1}" != "-f" ]]; then
     echo "Config exists"
     read -p "Would you like to delete and replace it? (y/N) "
@@ -111,7 +165,7 @@ fi
 
 mkdir -p ${CONFIG_DIR}
 
-NATS_SYSTEMS="[]"
+NATS_SYSTEMS="{}"
 for cluster in ${CLUSTERS}; do
   # Create cluster operator
   nsc ${NSC_FLAGS} add operator ${cluster}
@@ -145,25 +199,23 @@ for cluster in ${CLUSTERS}; do
   # Setup nats server config for RNA
   NATS_SYSTEM=$(cat <<EOF
     {
-      "name":                      "${cluster}",
-      "urls":                      "nats://${cluster}:4222",
-      "account_server_url":        "nats://${cluster}:4222",
-      "system_account_creds_file": "${NSC_DIR}/keys/creds/${cluster}/SYS/sys.creds",
+      "url":                      "nats://${cluster}:4222",
+      "system_user_creds_file": "${NSC_DIR}/keys/creds/${cluster}/SYS/sys.creds",
       "operator_signing_key_file": "${OPERATOR_KEY_PATH}"
     }
 EOF
   )
 
   # Append nats server config to array
-  NATS_SYSTEMS=$(add_json_to_array "${NATS_SYSTEM}" "${NATS_SYSTEMS}")
+  NATS_SYSTEMS=$(add_json_to_object "${cluster}" "${NATS_SYSTEM}" "${NATS_SYSTEMS}")
 done
 
 # Append nats system array to RNA config
-RNA_CONFIG=$(add_json_to_object "nats_systems" "${NATS_SYSTEMS}" "${RNA_CONFIG}")
+CONFIG=$(add_json_to_object "systems" "${NATS_SYSTEMS}" "${CONFIG}")
 
 # Apply overlay if present
 if [[ -f ${SETUP_DIR}/${OVERLAY_CONFIG_FILE} ]]; then
-  RNA_CONFIG=$(overlay "${RNA_CONFIG}")
+  CONFIG=$(overlay "${CONFIG}")
 fi
 
 # Write out RNA config to file

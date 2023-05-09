@@ -87,12 +87,12 @@ create_object_at_path() {
     jsonpath=$(echo "${path}" | jq -R 'split(".")')
 
     type=$(echo "${object}" | jq -r --argjson path "$jsonpath" 'getpath($path) | type')
-    if [[ ${type} == "null" ]]; then
+    if [[ "${type}" == "null" ]]; then
         parentpath=$(echo "${path}" | awk -F. '{OFS="."; NF--; print}')
         if [[ -n "${parentpath}" ]]; then
             parentjsonpath=$(echo "${parentpath}" | jq -R 'split(".")')
             parenttype=$(echo "${object}" | jq -r --argjson path "$parentjsonpath" 'getpath($path) | type')
-            if [[ ${parenttype} == "null" ]]; then
+            if [[ "${parenttype}" == "null" ]]; then
                 subobject=$(create_object_at_path "${parentpath}" "${object}")
             fi
         fi
@@ -317,7 +317,7 @@ setup_nsc() {
     env_exists=$(nsc_env_exists)
     if [[ $? -ne 0 ]]; then return 1; fi
 
-    if [[ ${env_exists} != "true" ]]; then nsc init >&2; fi
+    if [[ "${env_exists}" != "true" ]]; then nsc init >&2; fi
     if [[ $? -ne 0 ]]; then return 1; fi
 
     operators=$(nsc_table_to_json "list operators" | jq -r 'if . == {} then . else .Operators[].Name end')
@@ -334,7 +334,7 @@ setup_nsc() {
 
     eval "nkeys_path=$(nsc_table_to_json "env" | jq -r '.NSC[] | select(.Setting == "$NKEYS_PATH") | .EffectiveValue')"
 
-    if [[ ${operators} != "{}" ]]; then
+    if [[ "${operators}" != "{}" ]]; then
         response=$(prompt "  Use existing operator?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
             new_operator="false"
@@ -356,7 +356,7 @@ setup_nsc() {
         fi
     fi
 
-    if [[ ${new_operator} == "true" ]]; then
+    if [[ "${new_operator}" == "true" ]]; then
         response=$(prompt "  Create New Operator?" "${regex_yn}" "true" "Yes")
         if [[ "${response}" =~ ^[yY] ]]; then
             operator_name=$(prompt "  Operator Name" "" "true" "${system_name}")
@@ -468,7 +468,7 @@ setup_nsc() {
         cp "${user_creds_path}" "${local_config_directory}/systems/${system_name}/sys-user-creds/sys-user.creds"
     fi
 
-    if [[ ${new_operator} == "true" ]]; then
+    if [[ "${new_operator}" == "true" ]]; then
         echo "NATS Server Configuration for Generated Operator: ${operator}" >&2
         nsc generate config --nats-resolver >&2
     fi
@@ -498,7 +498,7 @@ setup_nats_systems() {
         mkdir -p "${operator_sk_dir}"
         mkdir -p "${sys_user_dir}"
 
-        if [[ ${HELM_MANAGED_SECRETS} == "false" ]]; then 
+        if [[ "${HELM_MANAGED_SECRETS}" == "false" ]]; then 
             user_creds_secret_name=$(prompt "  Kubernetes Secret Name for ${name} System User Creds" "" "true" "syn-cp-${name}")
             user_creds_key=$(prompt "  Secret Key for System User Creds" "" "true" "sys-user.creds")
             operator_sk_secret_name=$(prompt "  Kubernetes Secret Name for ${name} Operator Signing Key" "" "true" "syn-cp-${name}")
@@ -514,32 +514,32 @@ setup_nats_systems() {
                 setup_nsc "${name}" "${urls}" "${account_server_url}"
                 if [[ $? -ne 0 ]]; then return 1; fi
             fi
-            if [[ ! -f "${local_config_directory}/systems/${name}/sys-user-creds/sys-user.creds" && "${HELM_MANAGED_SECRETS}" == "true" ]]; then
+            if [[ ! -f "${sys_user_dir}/sys-user.creds" && "${HELM_MANAGED_SECRETS}" == "true" ]]; then
                 system_user_creds_path=$(prompt "  System User Credentials File Path")
                 while [[ ! -f "$system_user_creds_path" ]]; do
                     echo "File does not exist" >&2
                     system_user_creds_path=$(prompt "  System User Credentials File Path" "" "true")
                 done
-                cp "${system_user_creds_path}" "${local_config_directory}/systems/${name}/sys-user-creds/sys-user.creds"
+                cp "${system_user_creds_path}" "${sys_user_dir}/sys-user.creds"
             fi
-            if [[ ! -f "${local_config_directory}/systems/${name}/operator-sk/operator-sk.nk" && "${HELM_MANAGED_SECRETS}" == "true" ]]; then
+            if [[ ! -f "${operator_sk_dir}/operator-sk.nk" && "${HELM_MANAGED_SECRETS}" == "true" ]]; then
                 operator_signing_key_path=$(prompt "  Operator Signing Key File Path")
                 while [[ ! -f "$operator_signing_key_path" ]]; do
                     echo "File does not exist" >&2
                     operator_signing_key_path=$(prompt "  Operator Signing Key File Path" "" "true")
                 done
-                cp "${operator_signing_key_path}" ${local_config_directory}/systems/${name}/operator-sk/operator-sk.nk
+                cp "${operator_signing_key_path}" "${operator_sk_dir}/operator-sk.nk"
             fi
 
-            if [[ "${HELM}" != "true" && -f "${local_config_directory}/systems/${name}/sys-user-creds/sys-user.creds" ]]; then
-                system=$(add_kv_to_object "system_user_creds_file" "${container_config_directory}/${name}/sys-user-creds/sys-user.creds" "${system}")
+            if [[ "${HELM}" != "true" && -f "${sys_user_dir}/sys-user.creds" ]]; then
+                system=$(add_kv_to_object "system_user_creds_file" "${container_config_directory}/systems/${name}/sys-user-creds/sys-user.creds" "${system}")
             elif [[ "${HELM}" != "true" ]]; then
                 echo "  Error: Unable to determine system user credentials file path" >&2
                 exit 1
             fi
 
             if [[ "${HELM}" != "true" && -f "${local_config_directory}/systems/${name}/operator-sk/operator-sk.nk" ]]; then
-                system=$(add_kv_to_object "operator_signing_key_file" "${container_config_directory}/${name}/operator-sk/operator-sk.nk" "${system}")
+                system=$(add_kv_to_object "operator_signing_key_file" "${container_config_directory}/systems/${name}/operator-sk/operator-sk.nk" "${system}")
             elif [[ "${HELM}" != "true" ]]; then
                 echo "  Error: Unable to determine operator signing key file path" >&2
                 exit 1
@@ -873,9 +873,8 @@ if [[ "${response}" =~ ^[yY] ]]; then
 
         cp "${cert_file}" "${tls_directory}/server.crt"
         cp "${key_file}" "${tls_directory}/server.key"
-        config=$(add_kv_to_object "cert_file" "${container_config_directory}/certs/server/tls.crt" "${config}" ".server.tls")
-        config=$(add_kv_to_object "key_file" "${container_config_directory}/certs/server/tls.key" "${config}" ".server.tls")
-        config=$(add_kv_bool_to_object "enabled" true "${config}" ".server.tls")
+        config=$(add_kv_to_object "cert_file" "${container_config_directory}/certs/server/server.crt" "${config}" ".server.tls")
+        config=$(add_kv_to_object "key_file" "${container_config_directory}/certs/server/server.key" "${config}" ".server.tls")
     else
         tls_secret_name=$(prompt "Kubernetes Secret Name for TLS Cert" "" "false")
         tls_cert_secret_key=$(prompt "Secret Key for TLS Cert" "" "false")
@@ -888,7 +887,7 @@ if [[ "${response}" =~ ^[yY] ]]; then
     fi
 fi
 
-if [[ ${ADVANCED} == "true" ]]; then
+if [[ "${ADVANCED}" == "true" ]]; then
     http_listen_port=$(prompt "HTTP Listen Port" "^[0-9]+$" "true" "8080")
     config=$(add_kv_to_object "http_addr" ":${http_listen_port}" "${config}" ".server")
     https_listen_port=$(prompt "HTTPS Listen Port" "^[0-9]+$" "true" "8443")

@@ -854,7 +854,7 @@ if [[ "${HELM}" == "true" ]]; then
     ingress=$(setup_ingress "${public_url}")
 fi
 
-response=$(prompt "Enable HTTPS?" "${regex_yn}" "true" "No")
+response=$(prompt "Enable Native HTTPS?" "${regex_yn}" "true" "No")
 if [[ "${response}" =~ ^[yY] ]]; then
     tls_directory="${local_config_directory}/certs/server"
     mkdir -p  ${tls_directory}

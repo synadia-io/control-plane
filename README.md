@@ -44,7 +44,7 @@ Login Successful
 Use Kubernetes Ingress? (No): y
 Ingress Hostname (control-plane.example.com):
 Ingress Class (nginx):
-Kubernetes Secret Name for TLS Certs (Optional):
+Kubernetes Secret Name for TLS Certs (Optional): syn-cp-tls
 Enable HTTPS? (No):
 Encryption Key URL (Empty to generate local key):
 Would you like the Helm chart to manage NATS System Credentials? (Yes):
@@ -114,7 +114,8 @@ Add NATS System
     "enabled": true,
     "hosts": [
       "control-plane.example.com"
-    ]
+    ],
+    "tlsSecretName": "syn-cp-tls"
   }
 }
 Write config to file? (Yes):

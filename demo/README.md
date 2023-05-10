@@ -1,10 +1,10 @@
-# Helix Beta Demo
+# Synadia Control Plane Demo
 
-Helix is currently in Private Beta.  If you would like to participate in the Beta program, please contact `info@synadia.com`
+Synadia Control Plane is currently in Private Beta.  If you would like to participate in the Beta program, please contact `info@synadia.com`
 
 ## Prerequisites
 
-Login to the Helix Beta docker registry using the credentials that you were given:
+Login to the Control Plane Beta docker registry using the credentials that you were given:
 
 ```bash
 docker login registry.helix-dev.synadia.io
@@ -12,15 +12,15 @@ docker login registry.helix-dev.synadia.io
 
 ## Deployment
 
-The provided docker-compose will deploy a sample 3-cluster NATS environment connected to Helix
+The provided docker-compose will deploy a sample 3-cluster NATS environment connected to Synadia Control Plane
 
 The deployed NATS instances will be exposed on ports `4222`, `4223`, and `4224` if you wish to query them directly
 
 #### Set Public URL (Optional)
-Update `helix.json`:
+Update `syn-cp.json`:
 ```
 {
-  "public_url": "http://helix.your-domain.com"
+  "public_url": "http://control-plane.your-domain.com"
 }
 ```
 
@@ -30,14 +30,14 @@ Update `helix.json`:
 docker compose up -d
 ```
 
-#### Connect to Helix UI on port 8080
+#### Connect to the Control Plane UI on port 8080
 
 Navigate to `http://localhost:8080` or `http://<your_docker_host>:8080`
 
-The first time that Helix runs, the admin username/password will be visible in the logs:
+The first time that Control Plane runs, the admin username/password will be visible in the logs:
 
 ```bash
-docker compose logs helix
+docker compose logs control-plane
 ```
 
 #### Upgrade to a new Beta version

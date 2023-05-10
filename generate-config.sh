@@ -1012,7 +1012,7 @@ if [[ "${HELM}" == "true" ]]; then
 echo "\
 helm repo add synadia https://connecteverything.github.io/helm-charts
 helm repo update
-helm upgrade --install syn-cp -n syn-cp --create-namespace\
+helm upgrade --install control-plane -n syn-cp --create-namespace\
  -f $([[ "${config_file}" == "$(pwd)/${config_file_name}" ]] && echo "${config_file_name}" || echo ${config_file})\
  -f $([[ "${secrets_file}" == "$(pwd)/${secrets_file_name}" ]] && echo "${secrets_file_name}" || echo ${secrets_file})\
  synadia/control-plane

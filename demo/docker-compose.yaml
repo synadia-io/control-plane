@@ -3,7 +3,7 @@ version: '3.9'
 services:
   control-plane:
     container_name: control-plane
-    image: registry.helix-dev.synadia.io/control-plane:tag-rc
+    image: registry.helix-dev.synadia.io/control-plane:tag-release
     hostname: control-plane
     command: ["-c", "/conf/syn-cp.cue", "server", "start"]
     volumes:

@@ -647,7 +647,10 @@ setup_ingress() {
         hostname=$(prompt "Ingress Hostname" "" "true" "${hostname}")
         hostname="[\"${hostname}\"]"
         ingress=$(add_json_to_object "hosts" "${hostname}" "${ingress}")
-        ingress_class=$(prompt "Ingress Class" "" "true" "nginx")
+        ingress_class=$(prompt "Ingress Class (Optional)" "" "true")
+        if [[ -n "${ingress_class}" ]]; then
+            ingress=$(add_kv_to_object "className" "${ingress_class}" "${ingress}")
+        fi
         secret_name=$(prompt "Kubernetes Secret Name for TLS Certs (Optional)" "" "true")
         if [[ -n "${secret_name}" ]]; then
             ingress=$(add_kv_to_object "tlsSecretName" "${secret_name}" "${ingress}")

@@ -28,12 +28,14 @@ The `--helm` flag will prompt the script to generate two Helm values files
 
 ```
 ./generate-config.sh --helm
-
-
-  _____   ___  _   _   ___ ___   _      ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___
- / __\ \ / / \| | /_\ |   \_ _| /_\    / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __|
- \__ \\ V /| .` |/ _ \| |) | | / _ \  | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _|
- |___/ |_| |_|\_/_/ \_\___/___/_/ \_\  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___|
+  ___                   _ _                        
+ / __|_  _ _ _  __ _ __| (_)__ _                   
+ \__ \ || | ' \/ _` / _` | / _` |                  
+ |___/\_, |_||_\__,_\__,_|_\__,_|                  
+   ___|__/     _           _   ___ _               
+  / __|___ _ _| |_ _ _ ___| | | _ \ |__ _ _ _  ___ 
+ | (__/ _ \ ' \  _| '_/ _ \ | |  _/ / _` | ' \/ -_)
+  \___\___/_||_\__|_| \___/_| |_| |_\__,_|_||_\___|
 
 Control-Plane Public URL (http://localhost:8080): https://control-plane.example.com
 Synadia Registry Username: synadia
@@ -43,7 +45,7 @@ Synadia Registry Password:
 Login Successful
 Use Kubernetes Ingress? (No): y
 Ingress Hostname (control-plane.example.com):
-Ingress Class (nginx):
+Ingress Class (Optional): nginx
 Kubernetes Secret Name for TLS Certs (Optional): syn-cp-tls
 Enable HTTPS? (No):
 Encryption Key URL (Empty to generate local key):
@@ -115,6 +117,7 @@ Add NATS System
     "hosts": [
       "control-plane.example.com"
     ],
+    "className": "nginx",
     "tlsSecretName": "syn-cp-tls"
   }
 }
@@ -122,16 +125,22 @@ Write config to file? (Yes):
 Config File Path (/syn-cp.json):
 Write Helm secrets to file? (Yes):
 Config File Path (/syn-cp-secrets.json):
-
-
-   ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___   ___ _  _ ___ _____ _   _    _
-  / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __| |_ _| \| / __|_   _/_\ | |  | |
- | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _|   | || .` \__ \ | |/ _ \| |__| |__
-  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___| |___|_|\_|___/ |_/_/ \_\____|____|
+  ___         _        _ _                         
+ |_ _|_ _  __| |_ __ _| | |                        
+  | || ' \(_-<  _/ _` | | |                        
+ |___|_||_/__/\__\__,_|_|_|                        
+   ___         _           _   ___ _               
+  / __|___ _ _| |_ _ _ ___| | | _ \ |__ _ _ _  ___ 
+ | (__/ _ \ ' \  _| '_/ _ \ | |  _/ / _` | ' \/ -_)
+  \___\___/_||_\__|_| \___/_| |_| |_\__,_|_||_\___|
 
 helm repo add synadia https://connecteverything.github.io/helm-charts
 helm repo update
-helm upgrade --install syn-cp -n syn-cp --create-namespace -f syn-cp.json -f syn-cp-secrets.json synadia/control-plane
+helm upgrade --install --create-namespace control-plane \
+    -n syn-cp \
+    -f syn-cp.json \
+    -f syn-cp-secrets.json \
+    synadia/control-plane
 ```
 
 ### Chart Values
@@ -143,25 +152,33 @@ Details in the [values.yaml](https://github.com/ConnectEverything/helm-charts/bl
 ```bash
 helm repo add synadia https://connecteverything.github.io/helm-charts
 helm repo update
-helm upgrade --install syn-cp -n syn-cp --create-namespace -f syn-cp.json -f syn-cp-secrets.json synadia/control-plane
+helm upgrade --install --create-namespace control-plane \
+    -n syn-cp \
+    -f syn-cp.json \
+    -f syn-cp-secrets.json \
+    synadia/control-plane
 ```
 
 ### Login Details
 
 On first run, login credentials will be visible in the logs
 ```
-kubectl logs -n syn-cp deployment/syn-cp-control-plane
+kubectl logs -n syn-cp deployment/control-plane
 ```
 
 #### Run Helm upgrade
 
 ```
-helm upgrade --install syn-cp -n syn-cp --create-namespace -f values.yaml -f syn-cp.json -f syn-cp-secrets.json synadia/control-plane
+helm upgrade --install --create-namespace control-plane \
+    -n syn-cp \
+    -f syn-cp.json \
+    -f syn-cp-secrets.json \
+    synadia/control-plane
 ```
 
 ### Uninstall Chart and Purge Data
 ```
-helm uninstall -n syn-cp syn-cp
+helm uninstall -n syn-cp control-plane
 ```
 
 ## Docker Compose
@@ -173,11 +190,14 @@ This process will create and populate the `conf` directory with the Control Plan
 ```
 ./generate-config.sh
 
-
-  _____   ___  _   _   ___ ___   _      ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___
- / __\ \ / / \| | /_\ |   \_ _| /_\    / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __|
- \__ \\ V /| .` |/ _ \| |) | | / _ \  | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _|
- |___/ |_| |_|\_/_/ \_\___/___/_/ \_\  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___|
+  ___                   _ _
+ / __|_  _ _ _  __ _ __| (_)__ _
+ \__ \ || | ' \/ _` / _` | / _` |
+ |___/\_, |_||_\__,_\__,_|_\__,_|
+   ___|__/     _           _   ___ _
+  / __|___ _ _| |_ _ _ ___| | | _ \ |__ _ _ _  ___
+ | (__/ _ \ ' \  _| '_/ _ \ | |  _/ / _` | ' \/ -_)
+  \___\___/_||_\__|_| \___/_| |_| |_\__,_|_||_\___|
 
 Control-Plane Public URL (http://localhost:8080): https://control-plane.example.com
 Enable HTTPS? (No):  yes

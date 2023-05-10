@@ -816,14 +816,17 @@ prepare_helm_secret_values() {
     add_json_to_object "systems" "${secret_values}" "{}" ".config"
  }
 
-echo \
-'
+cat << 'EOF'
+  ___                   _ _                        
+ / __|_  _ _ _  __ _ __| (_)__ _                   
+ \__ \ || | ' \/ _` / _` | / _` |                  
+ |___/\_, |_||_\__,_\__,_|_\__,_|                  
+   ___|__/     _           _   ___ _               
+  / __|___ _ _| |_ _ _ ___| | | _ \ |__ _ _ _  ___ 
+ | (__/ _ \ ' \  _| '_/ _ \ | |  _/ / _` | ' \/ -_)
+  \___\___/_||_\__|_| \___/_| |_| |_\__,_|_||_\___|
 
-  _____   ___  _   _   ___ ___   _      ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___ 
- / __\ \ / / \| | /_\ |   \_ _| /_\    / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __|
- \__ \\ V /| .` |/ _ \| |) | | / _ \  | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _| 
- |___/ |_| |_|\_/_/ \_\___/___/_/ \_\  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___|
-'
+EOF
 
 check_dependencies
 
@@ -1000,22 +1003,26 @@ if [[ "${secrets}" != "{}" ]]; then
 fi
 
 if [[ "${HELM}" == "true" ]]; then
-    echo \
-'
+cat << 'EOF'
+  ___         _        _ _                         
+ |_ _|_ _  __| |_ __ _| | |                        
+  | || ' \(_-<  _/ _` | | |                        
+ |___|_||_/__/\__\__,_|_|_|                        
+   ___         _           _   ___ _               
+  / __|___ _ _| |_ _ _ ___| | | _ \ |__ _ _ _  ___ 
+ | (__/ _ \ ' \  _| '_/ _ \ | |  _/ / _` | ' \/ -_)
+  \___\___/_||_\__|_| \___/_| |_| |_\__,_|_||_\___|
 
-   ___ ___  _  _ _____ ___  ___  _      ___ _      _   _  _ ___   ___ _  _ ___ _____ _   _    _    
-  / __/ _ \| \| |_   _| _ \/ _ \| |    | _ \ |    /_\ | \| | __| |_ _| \| / __|_   _/_\ | |  | |   
- | (_| (_) | .` | | | |   / (_) | |__  |  _/ |__ / _ \| .` | _|   | || .` \__ \ | |/ _ \| |__| |__ 
-  \___\___/|_|\_| |_| |_|_\\___/|____| |_| |____/_/ \_\_|\_|___| |___|_|\_|___/ |_/_/ \_\____|____|
-'
+EOF
 
 echo "\
 helm repo add synadia https://connecteverything.github.io/helm-charts
 helm repo update
-helm upgrade --install control-plane -n syn-cp --create-namespace\
- -f $([[ "${config_file}" == "$(pwd)/${config_file_name}" ]] && echo "${config_file_name}" || echo ${config_file})\
- -f $([[ "${secrets_file}" == "$(pwd)/${secrets_file_name}" ]] && echo "${secrets_file_name}" || echo ${secrets_file})\
- synadia/control-plane
+helm upgrade --install --create-namespace control-plane \\
+    -n syn-cp \\
+    -f $([[ "${config_file}" == "$(pwd)/${config_file_name}" ]] && echo "${config_file_name}" || echo ${config_file}) \\
+    -f $([[ "${secrets_file}" == "$(pwd)/${secrets_file_name}" ]] && echo "${secrets_file_name}" || echo ${secrets_file}) \\
+    synadia/control-plane
 "
 
 fi

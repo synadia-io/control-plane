@@ -1016,7 +1016,7 @@ cat << 'EOF'
 EOF
 
 echo "\
-helm repo add synadia https://connecteverything.github.io/helm-charts
+helm repo add synadia https://synadia-io.github.io/helm-charts
 helm repo update
 helm upgrade --install --create-namespace control-plane \\
     -n syn-cp \\

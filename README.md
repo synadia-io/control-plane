@@ -134,7 +134,7 @@ Config File Path (/syn-cp-secrets.json):
  | (__/ _ \ ' \  _| '_/ _ \ | |  _/ / _` | ' \/ -_)
   \___\___/_||_\__|_| \___/_| |_| |_\__,_|_||_\___|
 
-helm repo add synadia https://connecteverything.github.io/helm-charts
+helm repo add synadia https://synadia-io.github.io/helm-charts
 helm repo update
 helm upgrade --install --create-namespace control-plane \
     -n syn-cp \
@@ -145,12 +145,12 @@ helm upgrade --install --create-namespace control-plane \
 
 ### Chart Values
 
-Details in the [values.yaml](https://github.com/ConnectEverything/helm-charts/blob/main/charts/control-plane/values.yaml)
+Details in the [values.yaml](https://github.com/synadia-io/helm-charts/blob/main/charts/control-plane/values.yaml)
 
 ### Deploy the Helm Chart
 
 ```bash
-helm repo add synadia https://connecteverything.github.io/helm-charts
+helm repo add synadia https://synadia-io.github.io/helm-charts
 helm repo update
 helm upgrade --install --create-namespace control-plane \
     -n syn-cp \

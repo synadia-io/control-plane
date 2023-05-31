@@ -3,7 +3,7 @@ version: '3.9'
 services:
   control-plane:
     container_name: control-plane
-    image: registry.helix-dev.synadia.io/control-plane:tag-release
+    image: registry.synadia.io/control-plane:latest
     hostname: control-plane
     command: ["-c", "/etc/syn-cp/syn-cp.json", "server", "start"]
     volumes:

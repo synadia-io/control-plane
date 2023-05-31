@@ -1,13 +1,13 @@
 # Synadia Control Plane Demo
 
-Synadia Control Plane is currently in Private Beta.  If you would like to participate in the Beta program, please contact `info@synadia.com`
+Synadia Control Plane requires a registry credentials.  If you are interested in demoing Synadia Control Plane, please contact `info@synadia.com`
 
 ## Prerequisites
 
-Login to the Control Plane Beta docker registry using the credentials that you were given:
+Login to the Synadia docker registry using the credentials that you were given:
 
 ```bash
-docker login registry.helix-dev.synadia.io
+docker login registry.synadia.io
 ```
 
 ## Deployment
@@ -20,7 +20,9 @@ The deployed NATS instances will be exposed on ports `4222`, `4223`, and `4224` 
 Update `syn-cp.json`:
 ```
 {
-  "public_url": "http://control-plane.your-domain.com"
+  "server": {
+    "url": "http://control-plane.your-domain.com"
+  }
 }
 ```
 
@@ -40,7 +42,7 @@ The first time that Control Plane runs, the admin username/password will be visi
 docker compose logs control-plane
 ```
 
-#### Upgrade to a new Beta version
+#### Upgrade to a new version
 
 ```bash
 docker compose pull

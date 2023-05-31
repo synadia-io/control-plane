@@ -976,6 +976,8 @@ if [[ "${HELM}" == "true" ]]; then
   config_path="$(pwd)"
 fi
 
+mkdir -p "${config_path}"
+
 response=$(prompt "Write config to file?" "${regex_yn}" "true" "Yes")
 if [[ "${response}" =~ ^[yY] ]]; then
     config_file=$(prompt "Config File Path" "" "true" "${config_path}/${config_file_name}")

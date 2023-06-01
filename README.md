@@ -1,6 +1,6 @@
-# Synadia Control Plane Beta
+# Synadia Control Plane
 
-Synadia Control Plane is currently in Private Beta.  If you would like to participate in the Beta program, please contact `info@synadia.com`
+Synadia Control Plane requires a registry credentials.  If you are interested in demoing Synadia Control Plane, please contact `info@synadia.com`
 
 Deployment Methods:
 - [Kubernetes via Helm](#helm)

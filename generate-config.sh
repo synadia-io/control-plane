@@ -5,7 +5,7 @@
 ADVANCED="false"
 HELM="false"
 HELM_MANAGED_SECRETS="true"
-REGISTRY_URL="https://registry.helix-dev.synadia.io"
+REGISTRY_URL="https://registry.synadia.io"
 NGS_KEY_ID="ODLC22NIQQ5U4J6ZDTVOFKTEX4F77E7TVM2RHWSG7N266YOVKTRI4EWX"
 
 regex_keys='^((awskms|gcpkms|azurekeyvault|hashivault|base64key):\/\/)'

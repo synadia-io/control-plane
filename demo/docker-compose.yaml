@@ -3,73 +3,58 @@ version: '3.9'
 services:
   control-plane:
     container_name: control-plane
-    image: registry.synadia.io/control-plane:latest
+    image: registry.synadia.io/control-plane
     hostname: control-plane
-    command: ["-c", "/conf/syn-cp.cue", "server", "start"]
+    command: ['server', 'start']
     volumes:
-      - conf:/conf
+      - ./syn-cp.yaml:/app/syn-cp.yaml
       - control-plane-data:/app/data
     ports:
       - 8080:8080
-    depends_on:
-      - nats-a
-      - nats-b
-      - nats-c
-
-  nats-bootstrap:
-    container_name: nats-bootstrap
-    image: natsio/nats-box:latest
-    entrypoint: ["sh"]
-    command: ["/setup/bootstrap.sh", "-s"]
-    volumes:
-      - conf:/conf
-      - ./bootstrap.sh:/setup/bootstrap.sh:ro
-      - ./syn-cp.json:/setup/syn-cp.json:ro
 
   nats-a:
     container_name: control-plane-nats-a
-    image: nats:2.9.16-alpine
+    image: registry.synadia.io/synadia-server
     hostname: nats
-    command: ["nats-server", "--config", "/conf/nats-a/nats-server.conf"]
+    environment:
+      SYNADIA_SERVER_URL: http://control-plane:8080
+      SYNADIA_SERVER_CP_NATS_URL: ws://control-plane:8080/api/cp-nats
+    command: ["--opts-file", "/conf/opts.yaml", "--config", "/conf/nats.conf"]
     volumes:
-      - conf:/conf
-      - nats-a:/data
+      - ./conf/nats-a:/conf
+      - nats-a:/app/data
     ports:
       - 4222:4222
-    depends_on:
-      nats-bootstrap:
-        condition: service_completed_successfully
 
   nats-b:
     container_name: control-plane-nats-b
-    image: nats:2.9.16-alpine
+    image: registry.synadia.io/synadia-server
     hostname: nats
-    command: ["nats-server", "--config", "/conf/nats-b/nats-server.conf"]
+    environment:
+      SYNADIA_SERVER_URL: http://control-plane:8080
+      SYNADIA_SERVER_CP_NATS_URL: ws://control-plane:8080/api/cp-nats
+    command: ["--opts-file", "/conf/opts.yaml", "--config", "/conf/nats.conf"]
     volumes:
-      - conf:/conf
-      - nats-b:/data
+      - ./conf/nats-b:/conf
+      - nats-b:/app/data
     ports:
       - 4223:4222
-    depends_on:
-      nats-bootstrap:
-        condition: service_completed_successfully
-
+  
   nats-c:
     container_name: control-plane-nats-c
-    image: nats:2.9.16-alpine
+    image: registry.synadia.io/synadia-server
     hostname: nats
-    command: ["nats-server", "--config", "/conf/nats-c/nats-server.conf"]
+    environment:
+      SYNADIA_SERVER_URL: http://control-plane:8080
+      SYNADIA_SERVER_CP_NATS_URL: ws://control-plane:8080/api/cp-nats
+    command: ["--opts-file", "/conf/opts.yaml", "--config", "/conf/nats.conf"]
     volumes:
-      - conf:/conf
-      - nats-c:/data
+      - ./conf/nats-c:/conf
+      - nats-c:/app/data
     ports:
       - 4224:4222
-    depends_on:
-      nats-bootstrap:
-        condition: service_completed_successfully
 
 volumes:
-  conf: {}
   nats-a: {}
   nats-b: {}
   nats-c: {}

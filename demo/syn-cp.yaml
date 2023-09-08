@@ -1,0 +1,3 @@
+server:
+  # full URL where you will access Control Plane
+  url: http://localhost:8080
